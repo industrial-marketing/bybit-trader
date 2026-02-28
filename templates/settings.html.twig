@@ -149,6 +149,40 @@
         </form>
     </div>
 
+    <div class="settings-section" style="border-color: #f85149;">
+        <h3 style="color: #f85149;">⚡ Защита от потерь (Risk Guards)</h3>
+        <form id="risk-settings-form">
+            <div class="form-group">
+                <label>Торговля разрешена:</label>
+                <input type="checkbox" id="risk-trading-enabled" name="trading_enabled" checked>
+                <span>Снимите галочку, чтобы заблокировать ВСЕ торговые операции бота и ручное открытие.</span>
+            </div>
+            <div class="form-group">
+                <label>Дневной лимит потерь (USDT):</label>
+                <input type="number" step="0.01" min="0" id="risk-daily-loss" name="daily_loss_limit_usdt" placeholder="0 = отключено">
+                <span class="hint">Если суммарный PnL за день опустится ниже −X USDT, бот автоматически остановится. 0 — лимит не установлен.</span>
+            </div>
+            <div class="form-group">
+                <label>Максимальный суммарный риск (USDT маржи):</label>
+                <input type="number" step="0.01" min="0" id="risk-max-exposure" name="max_total_exposure_usdt" placeholder="0 = отключено">
+                <span class="hint">Сумма всех маржинальных залогов (notional/leverage). Если превышена — новые позиции не открываются. 0 — лимит не установлен.</span>
+            </div>
+            <div class="form-group">
+                <label>Кулдаун между действиями по символу (мин):</label>
+                <input type="number" min="0" id="risk-cooldown" name="action_cooldown_minutes" placeholder="30">
+                <span class="hint">Минимальный интервал между торговыми действиями по одной и той же монете. 0 — без ограничений.</span>
+            </div>
+            <div class="form-group">
+                <label>Строгий режим (двухфазное исполнение):</label>
+                <input type="checkbox" id="risk-strict-mode" name="bot_strict_mode">
+                <span>CLOSE_FULL и AVERAGE_IN требуют ручного подтверждения. Применяется только к боту.</span>
+            </div>
+            <div class="buttons-row">
+                <button type="submit" class="btn-primary">Сохранить</button>
+            </div>
+        </form>
+    </div>
+
     <div id="settings-message" class="message"></div>
 </div>
 {% endblock %}

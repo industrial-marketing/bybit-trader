@@ -153,6 +153,30 @@
     </div>
 
     <div class="section" data-page="bot">
+        <h2>Статус защиты бота</h2>
+        <div id="risk-status-panel" class="risk-panel">
+            <span class="loading">Загрузка...</span>
+        </div>
+    </div>
+
+    <div class="section" data-page="bot" id="pending-section" style="display:none;">
+        <h2>⚠ Ожидают подтверждения (строгий режим)</h2>
+        <p class="section-desc">Эти действия предложены ботом, но требуют вашего подтверждения перед исполнением.</p>
+        <div class="table-container">
+            <table id="pending-table">
+                <thead>
+                    <tr>
+                        <th>Время</th><th>Символ</th><th>Сторона</th>
+                        <th>Действие</th><th>PnL</th><th>Примечание</th>
+                        <th>Подтвердить</th><th>Отклонить</th>
+                    </tr>
+                </thead>
+                <tbody><tr><td colspan="8" class="loading">Нет действий</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="section" data-page="bot">
         <h2>Текущие позиции</h2>
         <div class="table-container">
             <table id="positions-table">

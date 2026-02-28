@@ -47,15 +47,21 @@ class SettingsService
                 'enabled' => false,
             ],
             'trading' => [
-                'max_position_usdt'       => 100.0,
-                'min_leverage'            => 1,
-                'max_leverage'            => 5,
-                'aggressiveness'          => 'balanced',
-                'max_managed_positions'   => 10,
-                'auto_open_min_positions' => 5,
-                'auto_open_enabled'       => false,
-                'bot_timeframe'           => 5,
-                'bot_history_candles'     => 60,
+                'max_position_usdt'        => 100.0,
+                'min_leverage'             => 1,
+                'max_leverage'             => 5,
+                'aggressiveness'           => 'balanced',
+                'max_managed_positions'    => 10,
+                'auto_open_min_positions'  => 5,
+                'auto_open_enabled'        => false,
+                'bot_timeframe'            => 5,
+                'bot_history_candles'      => 60,
+                // ── Risk Guards ──────────────────────────────────────────
+                'trading_enabled'          => true,   // kill-switch
+                'daily_loss_limit_usdt'    => 0.0,    // 0 = отключено
+                'max_total_exposure_usdt'  => 0.0,    // 0 = отключено
+                'action_cooldown_minutes'  => 30,     // мин. между действиями по одному символу
+                'bot_strict_mode'          => false,  // CLOSE_FULL/AVERAGE_IN требуют подтверждения
             ],
         ];
 

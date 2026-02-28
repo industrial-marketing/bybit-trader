@@ -12,7 +12,9 @@ $(document).ajaxError(function(event, xhr) {
 
 $(document).ready(function() {
     loadDashboard();
-    setInterval(loadDashboard, 30000); // Обновление каждые 30 сек
+    setInterval(loadDashboard, 30000);
+    loadRiskStatus();
+    setInterval(loadRiskStatus, 30000);
 
     // Обработчик анализа рынка
     $('#analyze-btn').on('click', function() {
@@ -668,4 +670,138 @@ function getTradingDecision(symbol) {
         .fail(function() {
             $('#decision-result').html('<p style="color: #f44336;">Ошибка получения решения</p>');
         });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Risk status + Pending confirmations
+// ─────────────────────────────────────────────────────────────────
+
+function loadRiskStatus() {
+    $.get('/api/bot/risk-status')
+        .done(function(data) {
+            renderRiskPanel(data);
+        })
+        .fail(function() {
+            $('#risk-status-panel').html('<span style="color:#f85149">Ошибка загрузки статуса защиты</span>');
+        });
+
+    $.get('/api/bot/pending')
+        .done(function(items) {
+            renderPendingTable(items);
+        });
+}
+
+function renderRiskPanel(data) {
+    const ok   = (s) => `<span class="risk-dot risk-ok">●</span> ${s}`;
+    const warn = (s) => `<span class="risk-dot risk-warn">●</span> ${s}`;
+    const bad  = (s) => `<span class="risk-dot risk-bad">●</span> ${s}`;
+
+    let html = '<div class="risk-grid">';
+
+    // Kill-switch
+    html += '<div class="risk-item">' +
+        (data.trading_enabled ? ok('Торговля разрешена') : bad('Торговля ОТКЛЮЧЕНА (kill-switch)')) +
+        '</div>';
+
+    // Daily loss
+    const dl = data.daily_loss_check || {};
+    const dlLimit = data.daily_loss_limit_usdt || 0;
+    const dlPnl   = dl.daily_pnl != null ? dl.daily_pnl.toFixed(2) : '—';
+    if (dlLimit <= 0) {
+        html += '<div class="risk-item">' + ok('Дневной лимит: не задан') + '</div>';
+    } else if (dl.ok !== false) {
+        html += '<div class="risk-item">' + ok(`Дневной PnL: ${dlPnl} USDT (лимит: −${dlLimit})`) + '</div>';
+    } else {
+        html += '<div class="risk-item">' + bad(`Дневной лимит превышен: ${dlPnl} USDT`) + '</div>';
+    }
+
+    // Exposure
+    const ex = data.exposure_check || {};
+    const exLimit = data.max_total_exposure_usdt || 0;
+    const exVal   = ex.total_exposure != null ? ex.total_exposure.toFixed(2) : '—';
+    if (exLimit <= 0) {
+        html += '<div class="risk-item">' + ok('Макс. риск: не задан') + '</div>';
+    } else if (ex.ok !== false) {
+        html += '<div class="risk-item">' + ok(`Суммарная маржа: ${exVal} / ${exLimit} USDT`) + '</div>';
+    } else {
+        html += '<div class="risk-item">' + bad(`Лимит риска превышен: ${exVal} USDT`) + '</div>';
+    }
+
+    // Cooldown
+    const cd = data.action_cooldown_minutes || 0;
+    html += '<div class="risk-item">' + ok(`Кулдаун: ${cd > 0 ? cd + ' мин' : 'откл.'}`) + '</div>';
+
+    // Strict mode
+    html += '<div class="risk-item">' +
+        (data.strict_mode ? warn('Строгий режим: CLOSE_FULL/AVERAGE_IN требуют подтверждения') : ok('Строгий режим: откл.')) +
+        '</div>';
+
+    html += '</div>';
+
+    // Alerts
+    if (data.alerts && data.alerts.length > 0) {
+        html += '<div class="risk-alerts">' +
+            data.alerts.map(a => `<div class="risk-alert-item">⚠ ${a}</div>`).join('') +
+            '</div>';
+    }
+
+    $('#risk-status-panel').html(html);
+}
+
+function renderPendingTable(items) {
+    if (!items || items.length === 0) {
+        $('#pending-section').hide();
+        return;
+    }
+    $('#pending-section').show();
+
+    let rows = '';
+    items.forEach(function(item) {
+        const pnl = item.pnlAtDecision != null ? parseFloat(item.pnlAtDecision).toFixed(2) : '—';
+        const pnlColor = item.pnlAtDecision > 0 ? '#4caf50' : '#f44336';
+        rows += `<tr>
+            <td>${(item.created_at || '').replace('T',' ')}</td>
+            <td>${item.symbol || '—'}</td>
+            <td>${item.side === 'Buy' ? '<span class="side-long">Long</span>' : '<span class="side-short">Short</span>'}</td>
+            <td><strong>${item.action || '—'}</strong></td>
+            <td style="color:${pnlColor}">${pnl}</td>
+            <td style="font-size:0.8em">${item.note || ''}</td>
+            <td><button class="btn-primary btn-sm btn-confirm-pending" data-id="${item.id}">✓ Да</button></td>
+            <td><button class="btn-secondary btn-sm btn-reject-pending" data-id="${item.id}">✗ Нет</button></td>
+        </tr>`;
+    });
+    $('#pending-table tbody').html(rows);
+
+    // Confirm
+    $('.btn-confirm-pending').off('click').on('click', function() {
+        const id = $(this).data('id');
+        resolvePending(id, true);
+    });
+    // Reject
+    $('.btn-reject-pending').off('click').on('click', function() {
+        const id = $(this).data('id');
+        resolvePending(id, false);
+    });
+}
+
+function resolvePending(id, confirm) {
+    $.ajax({
+        url: '/api/bot/confirm',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ id: id, confirm: confirm })
+    })
+    .done(function(data) {
+        const msg = confirm
+            ? (data.ok ? 'Действие исполнено.' : 'Ошибка: ' + (data.error || '?'))
+            : 'Действие отклонено.';
+        const $bsm = $('#bot-status-message');
+        $bsm.removeClass('error success').addClass(data.ok || !confirm ? 'success' : 'error').text(msg).show();
+        setTimeout(function() { $bsm.fadeOut(); }, 4000);
+        loadRiskStatus();
+        loadPositions();
+    })
+    .fail(function() {
+        $('#bot-status-message').removeClass('success').addClass('error').text('Ошибка подтверждения').show();
+    });
 }

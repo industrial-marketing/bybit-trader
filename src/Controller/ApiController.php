@@ -7,6 +7,8 @@ use App\Service\ChatGPTService;
 use App\Service\SettingsService;
 use App\Service\BotHistoryService;
 use App\Service\PositionLockService;
+use App\Service\RiskGuardService;
+use App\Service\PendingActionsService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -16,11 +18,13 @@ use Symfony\Component\Routing\Attribute\Route;
 class ApiController extends AbstractController
 {
     public function __construct(
-        private BybitService $bybitService,
-        private ChatGPTService $chatGPTService,
-        private SettingsService $settingsService,
-        private BotHistoryService $botHistory,
-        private PositionLockService $positionLockService
+        private BybitService           $bybitService,
+        private ChatGPTService         $chatGPTService,
+        private SettingsService        $settingsService,
+        private BotHistoryService      $botHistory,
+        private PositionLockService    $positionLockService,
+        private RiskGuardService       $riskGuard,
+        private PendingActionsService  $pendingActions
     ) {}
 
     #[Route('/positions', name: 'api_positions', methods: ['GET'])]
@@ -121,19 +125,41 @@ class ApiController extends AbstractController
     #[Route('/bot/tick', name: 'api_bot_tick', methods: ['POST', 'GET'])]
     public function botTick(): JsonResponse
     {
+        // ── Kill-switch ──────────────────────────────────────────────
+        if (!$this->riskGuard->isTradingEnabled()) {
+            return $this->json([
+                'ok'      => false,
+                'blocked' => true,
+                'reason'  => 'kill_switch',
+                'message' => 'Торговля отключена в настройках (kill-switch). Включите "Торговля разрешена" для работы бота.',
+                'managed' => [], 'opened' => [],
+            ]);
+        }
+
         $trading = $this->settingsService->getTradingSettings();
         $autoEnabled    = $trading['auto_open_enabled'] ?? false;
         $minPositions   = isset($trading['auto_open_min_positions']) ? max(0, (int)$trading['auto_open_min_positions']) : 5;
         $maxManaged     = isset($trading['max_managed_positions']) ? max(1, (int)$trading['max_managed_positions']) : 10;
         $botTimeframe   = isset($trading['bot_timeframe']) ? max(1, (int)$trading['bot_timeframe']) : 5;
         $historyCandleLimit = isset($trading['bot_history_candles']) ? max(1, min(60, (int)$trading['bot_history_candles'])) : 60;
-        // Минимальный интервал между полными тиками бота — равен таймфрейму в секундах
         $minIntervalSec = $botTimeframe * 60;
 
         $positions = $this->bybitService->getPositions();
         $openCount = count($positions);
 
-        // Ограничение по частоте принятия решений
+        // ── Daily loss limit ─────────────────────────────────────────
+        $dailyCheck = $this->riskGuard->checkDailyLossLimit();
+        if (!$dailyCheck['ok']) {
+            return $this->json([
+                'ok'      => false,
+                'blocked' => true,
+                'reason'  => 'daily_loss_limit',
+                'message' => $dailyCheck['message'],
+                'managed' => [], 'opened' => [],
+            ]);
+        }
+
+        // ── Частота принятия решений ─────────────────────────────────
         $tfLabel = match (true) {
             $botTimeframe >= 1440 => '1d',
             $botTimeframe >= 60   => ($botTimeframe / 60) . 'h',
@@ -201,6 +227,8 @@ class ApiController extends AbstractController
             $positionsBySymbolSide[$key] = $p;
         }
 
+        $strictMode  = $this->riskGuard->isStrictMode();
+
         foreach ($manageDecisions as $d) {
             $symbol = $d['symbol'] ?? '';
             $action = $d['action'] ?? 'DO_NOTHING';
@@ -222,19 +250,52 @@ class ApiController extends AbstractController
             }
 
             $side = $position['side'] ?? '';
-            // Если позиция помечена как заблокированная пользователем – бот её не трогает
+
+            // Позиция заблокирована пользователем — не трогаем
             if ($this->positionLockService->isLocked($symbol, $side)) {
                 continue;
             }
-            $result = null;
-            $eventType = null;
-            $pnlAtDecision = isset($position['unrealizedPnl']) ? (float)$position['unrealizedPnl'] : null;
+
+            // ── Rate-limit: cooldown per symbol ──────────────────────
+            if (!$this->riskGuard->isActionAllowed($symbol, $recentEvents)) {
+                $managed[] = [
+                    'symbol' => $symbol, 'side' => $side, 'action' => $action,
+                    'ok' => false, 'skipped' => true,
+                    'note' => 'Cooldown: слишком частые действия по этому символу.',
+                ];
+                continue;
+            }
+
+            // ── Strict mode: опасные действия → в очередь ────────────
+            if ($strictMode && $this->riskGuard->isDangerousAction($action)) {
+                if (!$this->pendingActions->hasPending($symbol, $action)) {
+                    $pndId = $this->pendingActions->add([
+                        'symbol'        => $symbol,
+                        'side'          => $side,
+                        'action'        => $action,
+                        'note'          => $d['note'] ?? '',
+                        'close_fraction'=> $d['close_fraction'] ?? 0.5,
+                        'average_size_usdt' => $d['average_size_usdt'] ?? 10.0,
+                        'pnlAtDecision' => isset($position['unrealizedPnl']) ? (float)$position['unrealizedPnl'] : null,
+                    ]);
+                    $managed[] = [
+                        'symbol' => $symbol, 'side' => $side, 'action' => $action,
+                        'ok' => true, 'pending' => true, 'pending_id' => $pndId,
+                        'note' => 'Строгий режим: требуется подтверждение пользователя.',
+                    ];
+                }
+                continue;
+            }
+
+            // ── Исполнение действия ───────────────────────────────────
+            $result           = null;
+            $eventType        = null;
+            $pnlAtDecision    = isset($position['unrealizedPnl']) ? (float)$position['unrealizedPnl'] : null;
             $realizedEstimate = null;
 
             if ($action === 'CLOSE_FULL' || $action === 'CLOSE_PARTIAL') {
                 $fraction = $action === 'CLOSE_FULL' ? 1.0 : (float)($d['close_fraction'] ?? 0.5);
-                $result = $this->bybitService->closePositionMarket($symbol, $side, $fraction);
-                // Если позиция слишком мала для частичного закрытия – считаем, что это просто пропуск, без ошибки
+                $result   = $this->bybitService->closePositionMarket($symbol, $side, $fraction);
                 if (!empty($result['skipped'])) {
                     $eventType = 'close_partial_skip';
                 } else {
@@ -244,27 +305,24 @@ class ApiController extends AbstractController
                             ? $pnlAtDecision
                             : $pnlAtDecision * max(0.0, min(1.0, $fraction));
                     }
-                    // История цен — рыночная, не чистим (монета может оставаться в топ-20)
                 }
             } elseif ($action === 'MOVE_STOP_TO_BREAKEVEN') {
                 $entry = isset($position['entryPrice']) ? (float)$position['entryPrice'] : 0.0;
-                $mark = isset($position['markPrice']) ? (float)$position['markPrice'] : 0.0;
-                $pnl = isset($position['unrealizedPnl']) ? (float)$position['unrealizedPnl'] : 0.0;
-                // Не двигаем стоп в безубыток, если позиция в явном минусе или вход некорректен
-                $isProfitable = $pnl > 0 && $entry > 0 && $mark > 0;
-                if ($isProfitable) {
-                    $result = $this->bybitService->setBreakevenStopLoss($symbol, $side, $entry);
+                $mark  = isset($position['markPrice'])  ? (float)$position['markPrice']  : 0.0;
+                $pnl   = isset($position['unrealizedPnl']) ? (float)$position['unrealizedPnl'] : 0.0;
+                if ($pnl > 0 && $entry > 0 && $mark > 0) {
+                    $result    = $this->bybitService->setBreakevenStopLoss($symbol, $side, $entry);
                     $eventType = 'move_sl_to_be';
                 } else {
-                    $result = ['ok' => true, 'skipped' => true, 'skipReason' => 'position_not_profitable_for_breakeven'];
+                    $result    = ['ok' => true, 'skipped' => true, 'skipReason' => 'position_not_profitable_for_breakeven'];
                     $eventType = 'move_sl_to_be_skip';
                 }
             } elseif ($action === 'AVERAGE_IN_ONCE') {
                 if (!isset($alreadyAveraged[$symbol])) {
-                    $sizeUsdt = max(1.0, (float)($d['average_size_usdt'] ?? 10.0));
-                    $lev = isset($position['leverage']) ? (int)$position['leverage'] : 1;
+                    $sizeUsdt  = max(1.0, (float)($d['average_size_usdt'] ?? 10.0));
+                    $lev       = isset($position['leverage']) ? (int)$position['leverage'] : 1;
                     $bybitSide = strtoupper($side) === 'BUY' ? 'BUY' : 'SELL';
-                    $result = $this->bybitService->placeOrder($symbol, $bybitSide, $sizeUsdt, $lev);
+                    $result    = $this->bybitService->placeOrder($symbol, $bybitSide, $sizeUsdt, $lev);
                     $eventType = 'average_in';
                     if ($result['ok'] ?? false) {
                         $alreadyAveraged[$symbol] = true;
@@ -274,13 +332,13 @@ class ApiController extends AbstractController
 
             if ($eventType !== null && $result !== null) {
                 $payload = [
-                    'symbol' => $symbol,
-                    'side' => $side,
-                    'action' => $action,
-                    'note' => $d['note'] ?? '',
-                    'ok' => $result['ok'] ?? false,
-                    'error' => $result['error'] ?? null,
-                    'pnlAtDecision' => $pnlAtDecision,
+                    'symbol'              => $symbol,
+                    'side'                => $side,
+                    'action'              => $action,
+                    'note'                => $d['note'] ?? '',
+                    'ok'                  => $result['ok'] ?? false,
+                    'error'               => $result['error'] ?? null,
+                    'pnlAtDecision'       => $pnlAtDecision,
                     'realizedPnlEstimate' => $realizedEstimate,
                 ];
                 $this->botHistory->log($eventType, $payload);
@@ -292,11 +350,13 @@ class ApiController extends AbstractController
         $opened = [];
 
         if ($autoEnabled) {
-            // Сколько новых позиций можно открыть, чтобы дойти до минимума и не превысить max_managed_positions
-            $targetMin = max(0, $minPositions);
+            // ── Exposure check перед auto-open ───────────────────────
+            $exposureCheck = $this->riskGuard->checkMaxExposure($positions);
+
+            $targetMin  = max(0, $minPositions);
             $slotsToMin = max(0, $targetMin - $openCount);
             $slotsToMax = max(0, $maxManaged - $openCount);
-            $slots = min($slotsToMin, $slotsToMax);
+            $slots      = $exposureCheck['ok'] ? min($slotsToMin, $slotsToMax) : 0;
 
             if ($slots > 0) {
                 $proposals = $this->chatGPTService->getProposals($this->bybitService);
@@ -386,6 +446,11 @@ class ApiController extends AbstractController
     #[Route('/order/open', name: 'api_order_open', methods: ['POST'])]
     public function openOrder(Request $request): JsonResponse
     {
+        // Kill-switch check
+        if (!$this->riskGuard->isTradingEnabled()) {
+            return $this->json(['ok' => false, 'error' => 'Торговля отключена (kill-switch). Включите в настройках.']);
+        }
+
         $data = json_decode($request->getContent(), true) ?? [];
         $symbol = $data['symbol'] ?? '';
         $side = strtoupper($data['side'] ?? '');
@@ -395,6 +460,14 @@ class ApiController extends AbstractController
         if ($symbol === '' || !in_array($side, ['BUY', 'SELL'], true)) {
             return $this->json(['ok' => false, 'error' => 'Invalid symbol or side']);
         }
+
+        // Max exposure check
+        $positions = $this->bybitService->getPositions();
+        $exposureCheck = $this->riskGuard->checkMaxExposure($positions);
+        if (!$exposureCheck['ok']) {
+            return $this->json(['ok' => false, 'error' => $exposureCheck['message']]);
+        }
+
         $result = $this->bybitService->placeOrder($symbol, $side, $positionSizeUSDT, $leverage);
 
         $this->botHistory->log('manual_open', [
@@ -459,6 +532,90 @@ class ApiController extends AbstractController
             'side' => $side,
             'locked' => $locked,
         ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Risk guard endpoints
+    // ─────────────────────────────────────────────────────────────────
+
+    #[Route('/bot/risk-status', name: 'api_bot_risk_status', methods: ['GET'])]
+    public function getRiskStatus(): JsonResponse
+    {
+        $positions = $this->bybitService->getPositions();
+        return $this->json($this->riskGuard->getRiskStatus($positions));
+    }
+
+    #[Route('/bot/pending', name: 'api_bot_pending', methods: ['GET'])]
+    public function getPendingActions(): JsonResponse
+    {
+        return $this->json($this->pendingActions->getAll());
+    }
+
+    #[Route('/bot/confirm', name: 'api_bot_confirm', methods: ['POST'])]
+    public function confirmPendingAction(Request $request): JsonResponse
+    {
+        $data    = json_decode($request->getContent(), true) ?? [];
+        $id      = $data['id'] ?? '';
+        $confirm = (bool)($data['confirm'] ?? false);
+
+        if ($id === '') {
+            return $this->json(['ok' => false, 'error' => 'Missing pending action id']);
+        }
+
+        $action = $this->pendingActions->resolve($id, $confirm);
+        if ($action === null) {
+            return $this->json(['ok' => false, 'error' => 'Pending action not found (expired or already resolved)']);
+        }
+
+        if (!$confirm) {
+            $this->botHistory->log('pending_rejected', ['id' => $id, 'symbol' => $action['symbol'] ?? '', 'action' => $action['action'] ?? '']);
+            return $this->json(['ok' => true, 'result' => 'rejected']);
+        }
+
+        // Исполняем подтверждённое действие
+        if (!$this->riskGuard->isTradingEnabled()) {
+            return $this->json(['ok' => false, 'error' => 'Торговля отключена (kill-switch)']);
+        }
+
+        $symbol   = $action['symbol'] ?? '';
+        $side     = $action['side']   ?? '';
+        $actType  = $action['action'] ?? '';
+        $result   = ['ok' => false, 'error' => 'Unknown action'];
+        $eventType = 'confirmed_action';
+        $realizedEstimate = null;
+
+        if ($actType === 'CLOSE_FULL') {
+            $result     = $this->bybitService->closePositionMarket($symbol, $side, 1.0);
+            $eventType  = 'close_full';
+            $realizedEstimate = $action['pnlAtDecision'] ?? null;
+        } elseif ($actType === 'AVERAGE_IN_ONCE') {
+            $sizeUsdt  = max(1.0, (float)($action['average_size_usdt'] ?? 10.0));
+            $lev       = 1;
+            $positions = $this->bybitService->getPositions();
+            foreach ($positions as $p) {
+                if (($p['symbol'] ?? '') === $symbol && ($p['side'] ?? '') === $side) {
+                    $lev = max(1, (int)($p['leverage'] ?? 1));
+                    break;
+                }
+            }
+            $bybitSide = strtoupper($side) === 'BUY' ? 'BUY' : 'SELL';
+            $result    = $this->bybitService->placeOrder($symbol, $bybitSide, $sizeUsdt, $lev);
+            $eventType = 'average_in';
+        }
+
+        $payload = [
+            'symbol'              => $symbol,
+            'side'                => $side,
+            'action'              => $actType,
+            'note'                => 'Confirmed by user',
+            'ok'                  => $result['ok'] ?? false,
+            'error'               => $result['error'] ?? null,
+            'pnlAtDecision'       => $action['pnlAtDecision'] ?? null,
+            'realizedPnlEstimate' => $realizedEstimate,
+        ];
+        $this->botHistory->log($eventType, $payload);
+
+        return $this->json(['ok' => true, 'result' => 'executed', 'details' => $payload]);
     }
 
     #[Route('/settings', name: 'api_settings_get', methods: ['GET'])]

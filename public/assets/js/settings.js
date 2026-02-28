@@ -21,6 +21,11 @@ $(document).ready(function() {
         saveTradingSettings();
     });
 
+    $('#risk-settings-form').on('submit', function(e) {
+        e.preventDefault();
+        saveRiskSettings();
+    });
+
     $('#bybit-test-btn').on('click', function() {
         testBybitConnection();
     });
@@ -70,6 +75,13 @@ function loadSettings() {
                 $('#trading-auto-open-enabled').prop('checked', !!data.trading.auto_open_enabled);
                 $('#trading-bot-timeframe').val(String(data.trading.bot_timeframe || '5'));
                 $('#trading-history-candles').val(data.trading.bot_history_candles || '60');
+
+                // Risk settings
+                $('#risk-trading-enabled').prop('checked', data.trading.trading_enabled !== false);
+                $('#risk-daily-loss').val(data.trading.daily_loss_limit_usdt || '0');
+                $('#risk-max-exposure').val(data.trading.max_total_exposure_usdt || '0');
+                $('#risk-cooldown').val(data.trading.action_cooldown_minutes ?? '30');
+                $('#risk-strict-mode').prop('checked', !!data.trading.bot_strict_mode);
             }
         })
         .fail(function() {
@@ -174,6 +186,22 @@ function saveTradingSettings() {
     .fail(function() {
         showMessage('Ошибка сохранения торговых настроек', 'error');
     });
+}
+
+function saveRiskSettings() {
+    const settings = {
+        trading: {
+            trading_enabled:         $('#risk-trading-enabled').is(':checked'),
+            daily_loss_limit_usdt:   parseFloat($('#risk-daily-loss').val()    || '0'),
+            max_total_exposure_usdt: parseFloat($('#risk-max-exposure').val()  || '0'),
+            action_cooldown_minutes: parseInt($('#risk-cooldown').val()        || '0', 10),
+            bot_strict_mode:         $('#risk-strict-mode').is(':checked')
+        }
+    };
+
+    $.ajax({ url: '/api/settings', method: 'POST', contentType: 'application/json', data: JSON.stringify(settings) })
+        .done(function() { showMessage('Настройки защиты сохранены!', 'success'); })
+        .fail(function() { showMessage('Ошибка сохранения настроек защиты', 'error'); });
 }
 
 function showMessage(text, type) {

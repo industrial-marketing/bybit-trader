@@ -509,3 +509,46 @@ tr:hover {
     opacity: 0.9;
     cursor: default;
 }
+
+/* ── Risk Guard Panel ──────────────────────────────────── */
+.risk-panel {
+    background: #0f1320;
+    border: 1px solid #2a2f4a;
+    border-radius: 8px;
+    padding: 16px 20px;
+}
+.risk-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 30px;
+}
+.risk-item {
+    font-size: 0.88rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.risk-dot {
+    font-size: 1rem;
+}
+.risk-ok   { color: #4caf50; }
+.risk-warn { color: #f0b90b; }
+.risk-bad  { color: #f85149; }
+.risk-alerts {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.risk-alert-item {
+    background: rgba(248,81,73,0.1);
+    border: 1px solid rgba(248,81,73,0.35);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    color: #f85149;
+}
+.btn-sm {
+    padding: 4px 10px;
+    font-size: 0.8rem;
+}
