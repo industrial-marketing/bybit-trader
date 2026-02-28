@@ -1,0 +1,250 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Dashboard - Bybit Trader{% endblock %}
+
+{% block scripts %}
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script src="/assets/js/app.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="dashboard-header">
+        <h2>Статистика</h2>
+        <div class="dashboard-header-actions">
+            <button id="refresh-btn" class="btn-secondary">Обновить</button>
+            <button id="bot-tick-btn" class="btn-primary">Запустить бота</button>
+        </div>
+    </div>
+    <div id="bot-status-message" class="bot-status-message"></div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Баланс USDT</h3>
+            <p id="stat-balance-usdt">-</p>
+        </div>
+        <div class="stat-card">
+            <h3>Доступно USDT</h3>
+            <p id="stat-balance-available">-</p>
+        </div>
+        <div class="stat-card">
+            <h3>Всего сделок</h3>
+            <p id="stat-total-trades">-</p>
+        </div>
+        <div class="stat-card">
+            <h3>Винрейт</h3>
+            <p id="stat-win-rate">-</p>
+        </div>
+        <div class="stat-card">
+            <h3>Общая прибыль</h3>
+            <p id="stat-total-profit" class="profit">-</p>
+        </div>
+        <div class="stat-card">
+            <h3>Средняя прибыль</h3>
+            <p id="stat-avg-profit">-</p>
+        </div>
+        <div class="stat-card">
+            <h3>Макс. просадка</h3>
+            <p id="stat-max-drawdown" class="loss">-</p>
+        </div>
+        <div class="stat-card">
+            <h3>Профит-фактор</h3>
+            <p id="stat-profit-factor">-</p>
+        </div>
+    </div>
+
+    <div class="section" data-page="dashboard">
+        <h2>Монета: график и анализ</h2>
+        <div class="coin-block">
+            <div class="coin-select-row">
+                <label>Монета:</label>
+                <select id="symbol-selector">
+                    <option value="BTCUSDT">BTCUSDT</option>
+                    <option value="ETHUSDT">ETHUSDT</option>
+                    <option value="BNBUSDT">BNBUSDT</option>
+                </select>
+                <button id="analyze-btn" class="btn-primary">Анализировать</button>
+            </div>
+            <div class="tv-chart-wrapper">
+                <div id="tv-chart-container"></div>
+            </div>
+            <div id="analysis-result" class="analysis-card"></div>
+            <div id="decision-result" class="decision-card"></div>
+        </div>
+    </div>
+
+    <div class="section" data-page="dashboard">
+        <h2>Предложения по сделкам</h2>
+        <p class="section-desc">Анализ топ-монет, отсортировано по вероятности удачности. Клик по строке — скорректировать сумму и открыть сделку с изолированной маржой.</p>
+        <div class="proposals-toolbar">
+            <button id="load-proposals-btn" class="btn-primary">Анализировать рынок</button>
+        </div>
+        <div class="table-container">
+            <table id="proposals-table">
+                <thead>
+                    <tr>
+                        <th>Символ</th>
+                        <th>Сигнал</th>
+                        <th>Уверенность</th>
+                        <th>Сумма USDT</th>
+                        <th>Плечо</th>
+                        <th>Причина</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="7" class="loading">Нажмите «Анализировать рынок»</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="open-order-modal" class="modal" style="display: none;">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <h3>Открыть сделку (изолированная маржа)</h3>
+            <input type="hidden" id="modal-symbol" />
+            <input type="hidden" id="modal-side" />
+            <div class="form-group">
+                <label>Символ</label>
+                <input type="text" id="modal-symbol-display" readonly />
+            </div>
+            <div class="form-group">
+                <label>Сторона</label>
+                <input type="text" id="modal-side-display" readonly />
+            </div>
+            <div class="form-group">
+                <label>Сумма (USDT)</label>
+                <input type="number" step="0.01" min="1" id="modal-amount" value="10" />
+            </div>
+            <div class="form-group">
+                <label>Плечо</label>
+                <input type="number" min="1" id="modal-leverage" value="1" />
+            </div>
+            <div class="modal-actions">
+                <button id="modal-submit-btn" class="btn-primary">Открыть сделку</button>
+                <button id="modal-cancel-btn" class="btn-secondary">Отмена</button>
+            </div>
+            <div id="modal-message" class="message"></div>
+        </div>
+    </div>
+
+    <div class="section" data-page="dashboard">
+        <h2>Топ монет (24ч оборот)</h2>
+        <p class="section-desc">Клик по строке — выбрать монету для графика и анализа выше.</p>
+        <div class="table-container">
+            <table id="top-markets-table">
+                <thead>
+                    <tr>
+                        <th>Символ</th>
+                        <th>Цена</th>
+                        <th>24ч %</th>
+                        <th>24ч объём</th>
+                        <th>24ч оборот</th>
+                        <th>24ч High</th>
+                        <th>24ч Low</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="7" class="loading">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="section" data-page="bot">
+        <h2>Текущие позиции</h2>
+        <div class="table-container">
+            <table id="positions-table">
+                <thead>
+                    <tr>
+                        <th>Символ</th>
+                        <th>Сторона</th>
+                        <th>Размер</th>
+                        <th>Вход USDT</th>
+                        <th>Плечо</th>
+                        <th>Цена входа</th>
+                        <th>Текущая цена</th>
+                        <th>Ликвидация</th>
+                        <th>Нереализованный PnL</th>
+                        <th>Открыто</th>
+                        <th>Бот</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="10" class="loading">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="section" data-page="bot">
+        <h2>Открытые ордера</h2>
+        <div class="table-container">
+            <table id="orders-table">
+                <thead>
+                    <tr>
+                        <th>Символ</th>
+                        <th>Сторона</th>
+                        <th>Тип</th>
+                        <th>Цена</th>
+                        <th>Количество</th>
+                        <th>Исполнено</th>
+                        <th>Статус</th>
+                        <th>Создан</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="8" class="loading">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="section" data-page="history">
+        <h2>Последние сделки</h2>
+        <div class="table-container">
+            <table id="trades-table">
+                <thead>
+                    <tr>
+                        <th>Символ</th>
+                        <th>Сторона</th>
+                        <th>Цена</th>
+                        <th>Количество</th>
+                        <th>Прибыль</th>
+                        <th>Статус</th>
+                        <th>Время</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="7" class="loading">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="section" data-page="history">
+        <h2>История бота (последние решения)</h2>
+        <p class="section-desc">Здесь отображаются недавние решения и действия бота за последнюю неделю.</p>
+        <div class="table-container">
+            <table id="bot-history-table">
+                <thead>
+                    <tr>
+                        <th>Время</th>
+                        <th>Тип</th>
+                        <th>Символ</th>
+                        <th>Действие</th>
+                        <th>Результат</th>
+                        <th>Примечание</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="6" class="loading">Загрузка истории бота...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

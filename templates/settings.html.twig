@@ -1,0 +1,154 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Настройки - Bybit Trader{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/settings.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="settings">
+    <h2>Настройки</h2>
+    
+    <div class="settings-section">
+        <h3>Bybit API</h3>
+        <form id="bybit-settings-form">
+            <div class="form-group">
+                <label>API Key:</label>
+                <input type="text" id="bybit-api-key" name="api_key" placeholder="Введите API Key">
+            </div>
+            <div class="form-group">
+                <label>API Secret:</label>
+                <input type="password" id="bybit-api-secret" name="api_secret" placeholder="Введите API Secret">
+            </div>
+            <div class="form-group">
+                <label>Testnet:</label>
+                <input type="checkbox" id="bybit-testnet" name="testnet" checked>
+                <span>Использовать тестовую сеть</span>
+            </div>
+            <div class="form-group">
+                <label>Base URL:</label>
+                <input type="text" id="bybit-base-url" name="base_url" placeholder="https://api-testnet.bybit.com">
+            </div>
+            <div class="buttons-row">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" id="bybit-test-btn" class="btn-secondary">Проверить подключение</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="settings-section">
+        <h3>ChatGPT API</h3>
+        <form id="chatgpt-settings-form">
+            <div class="form-group">
+                <label>API Key:</label>
+                <input type="text" id="chatgpt-api-key" name="api_key" placeholder="Введите OpenAI API Key">
+            </div>
+            <div class="form-group">
+                <label>Модель:</label>
+                <select id="chatgpt-model" name="model">
+                    <option value="gpt-4">GPT-4</option>
+                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Включено:</label>
+                <input type="checkbox" id="chatgpt-enabled" name="enabled">
+                <span>Использовать ChatGPT для анализа</span>
+            </div>
+            <div class="buttons-row">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" id="chatgpt-test-btn" class="btn-secondary">Проверить подключение</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="settings-section">
+        <h3>DeepSeek API (альтернативный LLM)</h3>
+        <form id="deepseek-settings-form">
+            <div class="form-group">
+                <label>API Key:</label>
+                <input type="text" id="deepseek-api-key" name="api_key" placeholder="Введите DeepSeek API Key">
+            </div>
+            <div class="form-group">
+                <label>Модель:</label>
+                <select id="deepseek-model" name="model">
+                    <option value="deepseek-chat">deepseek-chat</option>
+                    <option value="deepseek-reasoner">deepseek-reasoner</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Включено:</label>
+                <input type="checkbox" id="deepseek-enabled" name="enabled">
+                <span>Использовать DeepSeek, если ChatGPT недоступен</span>
+            </div>
+            <div class="buttons-row">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" id="deepseek-test-btn" class="btn-secondary">Проверить подключение</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="settings-section">
+        <h3>Торговые параметры</h3>
+        <form id="trading-settings-form">
+            <div class="form-group">
+                <label>Максимальный размер сделки (USDT):</label>
+                <input type="number" step="0.01" min="0" id="trading-max-position" name="max_position_usdt" placeholder="Например, 100">
+            </div>
+            <div class="form-group">
+                <label>Минимальное плечо:</label>
+                <input type="number" min="1" id="trading-min-leverage" name="min_leverage" placeholder="Например, 1">
+            </div>
+            <div class="form-group">
+                <label>Максимальное плечо:</label>
+                <input type="number" min="1" id="trading-max-leverage" name="max_leverage" placeholder="Например, 5">
+            </div>
+            <div class="form-group">
+                <label>Агрессивность:</label>
+                <select id="trading-aggressiveness" name="aggressiveness">
+                    <option value="conservative">Консервативная</option>
+                    <option value="balanced">Сбалансированная</option>
+                    <option value="aggressive">Агрессивная</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Максимум позиций под управлением бота:</label>
+                <input type="number" min="1" id="trading-max-managed" name="max_managed_positions" placeholder="Например, 10">
+            </div>
+            <div class="form-group">
+                <label>Минимум открытых позиций для автооткрытия ботом:</label>
+                <input type="number" min="0" id="trading-auto-open-min" name="auto_open_min_positions" placeholder="Например, 5">
+            </div>
+            <div class="form-group">
+                <label>Автооткрытие сделок ботом:</label>
+                <input type="checkbox" id="trading-auto-open-enabled" name="auto_open_enabled">
+                <span>Разрешить боту самостоятельно открывать сделки, если позиций меньше порога</span>
+            </div>
+            <div class="form-group">
+                <label>Таймфрейм бота (частота принятия решений):</label>
+                <select id="trading-bot-timeframe" name="bot_timeframe">
+                    <option value="1">1 мин (скальпинг)</option>
+                    <option value="5">5 мин</option>
+                    <option value="15">15 мин</option>
+                    <option value="30">30 мин</option>
+                    <option value="60">1 час</option>
+                    <option value="240">4 часа</option>
+                    <option value="1440">1 день</option>
+                </select>
+                <span class="hint">Бот запускается каждую минуту, но принимает решения только раз в выбранный период. История цен собирается по всем таймфреймам одновременно.</span>
+            </div>
+            <div class="form-group">
+                <label>Свечей истории для анализа (макс. 60):</label>
+                <input type="number" min="5" max="60" id="trading-history-candles" name="bot_history_candles" placeholder="60">
+                <span class="hint">Сколько последних свечей выбранного таймфрейма передавать боту при каждом анализе.</span>
+            </div>
+            <div class="buttons-row">
+                <button type="submit" class="btn-primary">Сохранить</button>
+            </div>
+        </form>
+    </div>
+
+    <div id="settings-message" class="message"></div>
+</div>
+{% endblock %}

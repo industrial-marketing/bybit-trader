@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход — Bybit Trader</title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #0d1117;
+        }
+        .login-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 40px 48px;
+            width: 100%;
+            max-width: 360px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        .login-card h1 {
+            color: #f0b90b;
+            font-size: 1.4rem;
+            margin: 0 0 8px;
+            text-align: center;
+        }
+        .login-card .subtitle {
+            color: #8b949e;
+            font-size: 0.85rem;
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .login-card label {
+            display: block;
+            color: #c9d1d9;
+            font-size: 0.85rem;
+            margin-bottom: 4px;
+            margin-top: 16px;
+        }
+        .login-card input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            background: #0d1117;
+            color: #f0f6fc;
+            font-size: 0.95rem;
+            box-sizing: border-box;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .login-card input:focus {
+            border-color: #f0b90b;
+        }
+        .login-card button {
+            width: 100%;
+            margin-top: 24px;
+            padding: 11px;
+            background: #f0b90b;
+            color: #0d1117;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .login-card button:hover {
+            background: #d4a00a;
+        }
+        .alert-error {
+            background: rgba(248,81,73,0.12);
+            border: 1px solid rgba(248,81,73,0.4);
+            color: #f85149;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>Bybit Trader</h1>
+        <p class="subtitle">Введите учётные данные для входа</p>
+
+        {% if error %}
+            <div class="alert-error">
+                {{ error.messageKey|trans(error.messageData, 'security') }}
+            </div>
+        {% endif %}
+
+        <form method="post">
+            <label for="username">Логин</label>
+            <input type="text" id="username" name="_username"
+                   value="{{ last_username }}" autocomplete="username" autofocus>
+
+            <label for="password">Пароль</label>
+            <input type="password" id="password" name="_password"
+                   autocomplete="current-password">
+
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token('authenticate') }}">
+
+            <button type="submit">Войти</button>
+        </form>
+    </div>
+</body>
+</html>
