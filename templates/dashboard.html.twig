@@ -192,12 +192,50 @@
                         <th>Ликвидация</th>
                         <th>Нереализованный PnL</th>
                         <th>Открыто</th>
+                        <th>Почему?</th>
                         <th>Бот</th>
                         <th>Действия</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td colspan="10" class="loading">Загрузка...</td></tr>
+                    <tr><td colspan="13" class="loading">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="section" data-page="bot">
+        <h2>Метрики бота</h2>
+        <p class="section-desc">Статистика решений LLM: предложено / исполнено / пропущено правилами.</p>
+        <div id="bot-metrics-panel" class="metrics-panel">
+            <div class="metrics-summary" id="metrics-summary-cards">
+                <span class="loading">Загрузка метрик...</span>
+            </div>
+            <div class="metrics-by-action" id="metrics-by-action" style="margin-top:14px;"></div>
+            <div class="metrics-skip-reasons" id="metrics-skip-reasons" style="margin-top:14px;"></div>
+        </div>
+    </div>
+
+    <div class="section" data-page="bot">
+        <h2>Последние решения LLM (трасса)</h2>
+        <p class="section-desc">Полная история решений с причинами, уверенностью и результатами правил.</p>
+        <div class="table-container">
+            <table id="decisions-table">
+                <thead>
+                    <tr>
+                        <th>Время</th>
+                        <th>Символ</th>
+                        <th>Действие</th>
+                        <th>%</th>
+                        <th>Риск</th>
+                        <th>Причина LLM</th>
+                        <th>Правило</th>
+                        <th>PnL est.</th>
+                        <th>v</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="9" class="loading">Загрузка...</td></tr>
                 </tbody>
             </table>
         </div>

@@ -26,6 +26,15 @@ $(document).ready(function() {
         saveRiskSettings();
     });
 
+    $('#alerts-settings-form').on('submit', function(e) {
+        e.preventDefault();
+        saveAlertsSettings();
+    });
+
+    $('#test-alert-btn').on('click', function() {
+        sendTestAlert();
+    });
+
     $('#bybit-test-btn').on('click', function() {
         testBybitConnection();
     });
@@ -82,6 +91,19 @@ function loadSettings() {
                 $('#risk-max-exposure').val(data.trading.max_total_exposure_usdt || '0');
                 $('#risk-cooldown').val(data.trading.action_cooldown_minutes ?? '30');
                 $('#risk-strict-mode').prop('checked', !!data.trading.bot_strict_mode);
+            }
+
+            // Alerts settings
+            if (data.alerts) {
+                $('#alerts-tg-token').val(data.alerts.telegram_bot_token || '');
+                $('#alerts-tg-chat').val(data.alerts.telegram_chat_id || '');
+                $('#alerts-webhook').val(data.alerts.webhook_url || '');
+                $('#alerts-llm-failure').prop('checked', data.alerts.on_llm_failure !== false);
+                $('#alerts-invalid-resp').prop('checked', data.alerts.on_invalid_response !== false);
+                $('#alerts-risk-limit').prop('checked', data.alerts.on_risk_limit !== false);
+                $('#alerts-bybit-error').prop('checked', !!data.alerts.on_bybit_error);
+                $('#alerts-repeated').prop('checked', data.alerts.on_repeated_failures !== false);
+                $('#alerts-threshold').val(data.alerts.repeated_failure_threshold || 3);
             }
         })
         .fail(function() {
@@ -244,6 +266,33 @@ function testChatGPTConnection() {
         .fail(function() {
             showMessage('Ошибка запроса к /api/test/chatgpt', 'error');
         });
+}
+
+function saveAlertsSettings() {
+    const settings = {
+        alerts: {
+            telegram_bot_token:         $('#alerts-tg-token').val(),
+            telegram_chat_id:           $('#alerts-tg-chat').val(),
+            webhook_url:                $('#alerts-webhook').val(),
+            on_llm_failure:             $('#alerts-llm-failure').is(':checked'),
+            on_invalid_response:        $('#alerts-invalid-resp').is(':checked'),
+            on_risk_limit:              $('#alerts-risk-limit').is(':checked'),
+            on_bybit_error:             $('#alerts-bybit-error').is(':checked'),
+            on_repeated_failures:       $('#alerts-repeated').is(':checked'),
+            repeated_failure_threshold: parseInt($('#alerts-threshold').val() || '3', 10)
+        }
+    };
+    $.ajax({ url: '/api/settings', method: 'POST', contentType: 'application/json', data: JSON.stringify(settings) })
+        .done(function() { showMessage('Настройки алертов сохранены!', 'success'); })
+        .fail(function() { showMessage('Ошибка сохранения настроек алертов', 'error'); });
+}
+
+function sendTestAlert() {
+    $.ajax({ url: '/api/alerts/test', method: 'POST', contentType: 'application/json', data: JSON.stringify({}) })
+        .done(function(data) {
+            showMessage(data.ok ? 'Тестовый алерт отправлен.' : ('Ошибка: ' + (data.error || '?')), data.ok ? 'success' : 'error');
+        })
+        .fail(function() { showMessage('Ошибка запроса тестового алерта', 'error'); });
 }
 
 function testDeepseekConnection() {

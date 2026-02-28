@@ -183,6 +183,56 @@
         </form>
     </div>
 
+    <div class="settings-section" style="border-color: #58a6ff;">
+        <h3 style="color: #58a6ff;">🔔 Алерты (Telegram / Webhook)</h3>
+        <p style="color:#8b949e;font-size:0.85rem;margin-bottom:14px;">
+            Получайте уведомления о сбоях LLM, ошибках Bybit, превышении лимитов риска.
+        </p>
+        <form id="alerts-settings-form">
+            <div class="form-group">
+                <label>Telegram Bot Token:</label>
+                <input type="text" id="alerts-tg-token" name="telegram_bot_token" placeholder="123456:ABCdef...">
+            </div>
+            <div class="form-group">
+                <label>Telegram Chat ID:</label>
+                <input type="text" id="alerts-tg-chat" name="telegram_chat_id" placeholder="-1001234567890">
+                <span class="hint">Узнать chat_id: добавьте бота в группу и проверьте /api/getUpdates</span>
+            </div>
+            <div class="form-group">
+                <label>Webhook URL (Slack / Discord / Custom):</label>
+                <input type="text" id="alerts-webhook" name="webhook_url" placeholder="https://hooks.slack.com/...">
+            </div>
+            <div class="form-group">
+                <label>Уведомлять о сбоях LLM:</label>
+                <input type="checkbox" id="alerts-llm-failure" name="on_llm_failure" checked>
+            </div>
+            <div class="form-group">
+                <label>Уведомлять о невалидных ответах LLM:</label>
+                <input type="checkbox" id="alerts-invalid-resp" name="on_invalid_response" checked>
+            </div>
+            <div class="form-group">
+                <label>Уведомлять о превышении лимитов риска:</label>
+                <input type="checkbox" id="alerts-risk-limit" name="on_risk_limit" checked>
+            </div>
+            <div class="form-group">
+                <label>Уведомлять об ошибках Bybit API:</label>
+                <input type="checkbox" id="alerts-bybit-error" name="on_bybit_error">
+            </div>
+            <div class="form-group">
+                <label>Уведомлять о повторяющихся ошибках:</label>
+                <input type="checkbox" id="alerts-repeated" name="on_repeated_failures" checked>
+            </div>
+            <div class="form-group">
+                <label>Порог повторяющихся ошибок (подряд):</label>
+                <input type="number" min="1" id="alerts-threshold" name="repeated_failure_threshold" value="3">
+            </div>
+            <div class="buttons-row">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" id="test-alert-btn" class="btn-secondary">Тестовый алерт</button>
+            </div>
+        </form>
+    </div>
+
     <div id="settings-message" class="message"></div>
 </div>
 {% endblock %}

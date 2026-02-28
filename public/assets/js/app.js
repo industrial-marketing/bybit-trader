@@ -128,13 +128,47 @@ function loadDashboard() {
     loadTopMarkets();
     loadBalance();
     loadBotHistory();
+    loadBotMetrics();
+    loadBotDecisions();
+}
+
+function renderWhyBadge(decision) {
+    if (!decision) return '<span style="color:#555">—</span>';
+    const action     = decision.action     || '';
+    const confidence = decision.confidence != null ? decision.confidence : null;
+    const reason     = (decision.reason     || '').substring(0, 80);
+    const risk       = decision.risk        || '';
+    const skipReason = decision.skip_reason || '';
+    const riskColor  = risk === 'low' ? '#4caf50' : risk === 'high' ? '#f85149' : '#ff9800';
+    const confText   = confidence != null ? `${confidence}%` : '';
+    let overrideText = '';
+    if (skipReason === 'locked')             overrideText = '🔒 Заблок.';
+    else if (skipReason === 'cooldown')      overrideText = '⏱ Кулдаун';
+    else if (skipReason === 'strict_mode_pending') overrideText = '⚠ Ожидание';
+    else if (skipReason)                     overrideText = `⛔ ${skipReason}`;
+
+    const fullTitle = [
+        action ? `Действие: ${action}` : '',
+        confText ? `Уверенность: ${confText}` : '',
+        risk ? `Риск: ${risk}` : '',
+        skipReason ? `Правило: ${skipReason}` : '',
+        reason ? `Причина: ${reason}` : '',
+        decision.prompt_version ? `v: ${decision.prompt_version}` : '',
+    ].filter(Boolean).join('\n');
+
+    return `<span class="why-badge" title="${fullTitle.replace(/"/g, '&quot;')}">
+        ${action ? `<span class="why-action">${action.replace('_', ' ')}</span>` : ''}
+        ${confText ? `<span class="why-conf">${confText}</span>` : ''}
+        ${risk ? `<span class="why-risk" style="color:${riskColor}">${risk}</span>` : ''}
+        ${overrideText ? `<span class="why-override">${overrideText}</span>` : ''}
+    </span>`;
 }
 
 function loadPositions() {
     $.get('/api/positions')
         .done(function(data) {
             if (data.length === 0) {
-                $('#positions-table tbody').html('<tr><td colspan="11" class="loading">Нет открытых позиций</td></tr>');
+                $('#positions-table tbody').html('<tr><td colspan="13" class="loading">Нет открытых позиций</td></tr>');
                 return;
             }
 
@@ -154,7 +188,8 @@ function loadPositions() {
                 const sideRaw = (position.side || '').toUpperCase();
                 const sideText = sideRaw === 'BUY' ? 'Long' : sideRaw === 'SELL' ? 'Short' : (position.side || '');
                 const sideClass = sideRaw === 'BUY' ? 'profit' : sideRaw === 'SELL' ? 'loss' : '';
-                
+                const whyHtml = renderWhyBadge(position.lastDecision || null);
+
                 html += `
                     <tr data-symbol="${position.symbol}" data-side="${position.side}">
                         <td><strong>${position.symbol}</strong></td>
@@ -167,6 +202,7 @@ function loadPositions() {
                         <td>${liqText}</td>
                         <td class="${pnlClass}">${pnlSign}${pnl.toFixed(2)}</td>
                         <td>${position.openedAt}</td>
+                        <td class="why-cell">${whyHtml}</td>
                         <td>${botStatus}</td>
                         <td>
                             <button type="button" class="btn-small btn-pos-lock">${locked ? 'Разблок.' : 'Замок'}</button>
@@ -178,7 +214,7 @@ function loadPositions() {
             $('#positions-table tbody').html(html);
         })
         .fail(function() {
-            $('#positions-table tbody').html('<tr><td colspan="11" class="loading">Ошибка загрузки данных</td></tr>');
+            $('#positions-table tbody').html('<tr><td colspan="13" class="loading">Ошибка загрузки данных</td></tr>');
         });
 }
 
@@ -330,6 +366,8 @@ function runBotTick() {
             $btn.text('Готово');
             // Обновим данные на дашборде после действий бота
             loadDashboard();
+            loadBotDecisions();
+            loadBotMetrics();
             setTimeout(function() {
                 $btn.text(originalText);
             }, 1500);
@@ -804,4 +842,130 @@ function resolvePending(id, confirm) {
     .fail(function() {
         $('#bot-status-message').removeClass('success').addClass('error').text('Ошибка подтверждения').show();
     });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Bot metrics
+// ─────────────────────────────────────────────────────────────────
+
+function loadBotMetrics() {
+    $.get('/api/bot/metrics?days=30')
+        .done(function(m) {
+            renderBotMetrics(m);
+        })
+        .fail(function() {
+            $('#metrics-summary-cards').html('<span style="color:#f85149">Ошибка загрузки метрик</span>');
+        });
+}
+
+function renderBotMetrics(m) {
+    const execRate = m.execution_rate_pct != null ? m.execution_rate_pct + '%' : '—';
+    const cards = [
+        { label: 'Тиков бота',      value: m.tick_count,        color: '#58a6ff' },
+        { label: 'Предложено LLM',  value: m.proposed,          color: '#58a6ff' },
+        { label: 'Исполнено',       value: m.executed,          color: '#3fb950' },
+        { label: 'Пропущено',       value: m.skipped,           color: '#d29922' },
+        { label: 'Ошибок API',      value: m.failed,            color: '#f85149' },
+        { label: 'Исп. rate',       value: execRate,            color: '#3fb950' },
+        { label: 'Сбоев LLM',      value: m.llm_failures,      color: '#f85149' },
+        { label: 'Невал. ответов',  value: m.invalid_responses, color: '#d29922' },
+    ];
+    let html = '<div class="metrics-cards">';
+    cards.forEach(function(c) {
+        html += `<div class="metric-card">
+            <div class="metric-value" style="color:${c.color}">${c.value != null ? c.value : 0}</div>
+            <div class="metric-label">${c.label}</div>
+        </div>`;
+    });
+    html += '</div>';
+    $('#metrics-summary-cards').html(html);
+
+    // By-action table
+    const ba = m.by_action || {};
+    if (Object.keys(ba).length > 0) {
+        let tbl = '<h4 style="margin:0 0 8px">По типам действий (30 дней)</h4>';
+        tbl += '<table class="metrics-table"><thead><tr><th>Действие</th><th>Предл.</th><th>Исп.</th><th>Пропуск</th><th>Ошибок</th><th>Побед</th><th>Пораж.</th><th>Win%</th><th>PnL ест.</th></tr></thead><tbody>';
+        Object.entries(ba).forEach(function([action, s]) {
+            const wr = s.win_rate != null ? s.win_rate + '%' : '—';
+            const pnlColor = s.total_pnl >= 0 ? '#3fb950' : '#f85149';
+            tbl += `<tr>
+                <td><strong>${action}</strong></td>
+                <td>${s.proposed}</td>
+                <td>${s.executed}</td>
+                <td>${s.skipped}</td>
+                <td>${s.failed}</td>
+                <td class="profit">${s.wins}</td>
+                <td class="loss">${s.losses}</td>
+                <td>${wr}</td>
+                <td style="color:${pnlColor}">${s.total_pnl}</td>
+            </tr>`;
+        });
+        tbl += '</tbody></table>';
+        $('#metrics-by-action').html(tbl);
+    } else {
+        $('#metrics-by-action').html('');
+    }
+
+    // Skip reasons
+    const sr = m.skip_reasons || {};
+    if (Object.keys(sr).length > 0) {
+        let html2 = '<h4 style="margin:0 0 8px">Причины пропусков</h4><div class="skip-reasons">';
+        Object.entries(sr).forEach(function([reason, count]) {
+            html2 += `<span class="skip-tag">${reason}: <strong>${count}</strong></span>`;
+        });
+        html2 += '</div>';
+        $('#metrics-skip-reasons').html(html2);
+    } else {
+        $('#metrics-skip-reasons').html('');
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Decisions trace (Why panel)
+// ─────────────────────────────────────────────────────────────────
+
+function loadBotDecisions() {
+    $.get('/api/bot/decisions?limit=50')
+        .done(function(data) {
+            renderDecisionsTable(data);
+        })
+        .fail(function() {
+            $('#decisions-table tbody').html('<tr><td colspan="9" class="loading">Ошибка загрузки</td></tr>');
+        });
+}
+
+function renderDecisionsTable(data) {
+    if (!data || data.length === 0) {
+        $('#decisions-table tbody').html('<tr><td colspan="9" class="loading">Нет данных о решениях</td></tr>');
+        return;
+    }
+    let html = '';
+    data.forEach(function(d) {
+        const ts = d.timestamp ? new Date(d.timestamp).toLocaleString('ru-RU') : '—';
+        const sym = d.symbol || '—';
+        const action = d.action || (d.type || '—');
+        const conf = d.confidence != null ? d.confidence + '%' : '—';
+        const risk = d.risk || '—';
+        const riskColor = risk === 'low' ? '#3fb950' : risk === 'high' ? '#f85149' : '#d29922';
+        const reason = (d.reason || d.note || '').substring(0, 60);
+        const skipReason = d.skip_reason || (d.skipReason || '');
+        const ruleText = skipReason ? `<span class="rule-badge">${skipReason}</span>` : (d.ok === false && !d.skipped ? '<span class="rule-badge rule-error">error</span>' : '');
+        const pnl = d.realizedPnlEstimate != null ? parseFloat(d.realizedPnlEstimate).toFixed(2) : '—';
+        const pnlColor = d.realizedPnlEstimate > 0 ? '#3fb950' : d.realizedPnlEstimate < 0 ? '#f85149' : '';
+        const pv = d.prompt_version ? `<span title="prompt version" style="font-size:0.7em;color:#555">${d.prompt_version}</span>` : '';
+
+        const actionClass = d.ok === false && !d.skipped ? 'loss' : (d.skipped ? '' : 'profit');
+        html += `<tr>
+            <td style="font-size:0.8em">${ts}</td>
+            <td><strong>${sym}</strong></td>
+            <td class="${actionClass}">${action.replace(/_/g, ' ')}</td>
+            <td>${conf}</td>
+            <td style="color:${riskColor}">${risk}</td>
+            <td style="font-size:0.8em" title="${(d.reason||'').replace(/"/g,'&quot;')}">${reason}${reason.length >= 60 ? '…' : ''}</td>
+            <td>${ruleText}</td>
+            <td style="color:${pnlColor}">${pnl}</td>
+            <td>${pv}</td>
+        </tr>`;
+    });
+    $('#decisions-table tbody').html(html);
 }

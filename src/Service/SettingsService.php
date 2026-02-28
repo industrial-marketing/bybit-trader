@@ -57,11 +57,23 @@ class SettingsService
                 'bot_timeframe'            => 5,
                 'bot_history_candles'      => 60,
                 // ── Risk Guards ──────────────────────────────────────────
-                'trading_enabled'          => true,   // kill-switch
-                'daily_loss_limit_usdt'    => 0.0,    // 0 = отключено
-                'max_total_exposure_usdt'  => 0.0,    // 0 = отключено
-                'action_cooldown_minutes'  => 30,     // мин. между действиями по одному символу
-                'bot_strict_mode'          => false,  // CLOSE_FULL/AVERAGE_IN требуют подтверждения
+                'trading_enabled'          => true,
+                'daily_loss_limit_usdt'    => 0.0,
+                'max_total_exposure_usdt'  => 0.0,
+                'action_cooldown_minutes'  => 30,
+                'bot_strict_mode'          => false,
+            ],
+            // ── Alerts ───────────────────────────────────────────────────
+            'alerts' => [
+                'telegram_bot_token'         => '',
+                'telegram_chat_id'           => '',
+                'webhook_url'                => '',
+                'on_llm_failure'             => true,
+                'on_invalid_response'        => true,
+                'on_risk_limit'              => true,
+                'on_bybit_error'             => false,
+                'on_repeated_failures'       => true,
+                'repeated_failure_threshold' => 3,
             ],
         ];
 
@@ -159,6 +171,17 @@ class SettingsService
     public function updateTradingSettings(array $settings): void
     {
         $this->settings['trading'] = array_merge($this->settings['trading'] ?? [], $settings);
+        $this->saveSettings();
+    }
+
+    public function getAlertsSettings(): array
+    {
+        return $this->settings['alerts'] ?? [];
+    }
+
+    public function updateAlertsSettings(array $settings): void
+    {
+        $this->settings['alerts'] = array_merge($this->settings['alerts'] ?? [], $settings);
         $this->saveSettings();
     }
 

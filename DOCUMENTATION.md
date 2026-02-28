@@ -1,6 +1,6 @@
 # Bybit Trader — Документация
 
-> Последнее обновление: 25.02.2026 (rev 4)
+> Последнее обновление: 25.02.2026 (rev 5)
 
 ## Содержание
 
@@ -54,10 +54,12 @@ Symfony Router
     └── ApiController        ──►  JSON API
             │
             ├── BybitService        (Bybit API v5, включая /v5/market/kline)
-            ├── ChatGPTService      (LLM: OpenAI / DeepSeek)
+            ├── ChatGPTService      (LLM: OpenAI / DeepSeek, строгий контракт v3)
             ├── SettingsService     (var/settings.json)
             ├── BotHistoryService   (var/bot_history.json)
             ├── PositionLockService (var/position_locks.json)
+            ├── AlertService        (Telegram / webhook алерты)
+            ├── BotMetricsService   (метрики LLM-решений, трасса "Why")
             └── LogSanitizer        (редактирование секретов в логах)
 ```
 
@@ -73,11 +75,13 @@ bybit_trader/
 │   │   ├── DashboardController.php   ← рендер страниц
 │   │   └── SecurityController.php    ← /login, /logout
 │   └── Service/
-│       ├── BybitService.php          ← Bybit API v5 (включая kline)
-│       ├── ChatGPTService.php        ← LLM (OpenAI + DeepSeek)
+│       ├── BybitService.php          ← Bybit API v5 (retry, time-sync, instrument cache)
+│       ├── ChatGPTService.php        ← LLM (OpenAI + DeepSeek, строгий контракт v3)
 │       ├── SettingsService.php       ← настройки (var/settings.json + env override)
 │       ├── BotHistoryService.php     ← история решений бота
 │       ├── PositionLockService.php   ← замки на позиции
+│       ├── AlertService.php          ← алерты (Telegram / webhook)
+│       ├── BotMetricsService.php     ← метрики LLM-решений и трасса "Why"
 │       └── LogSanitizer.php          ← редактирование секретов из логов
 ├── templates/
 │   ├── base.html.twig                ← базовый layout, навигация + кнопка Выйти
@@ -166,14 +170,31 @@ bybit_trader/
 
 Управление LLM-запросами. Поддерживает OpenAI (primary) и DeepSeek (fallback).
 
+**Константа:** `MANAGE_PROMPT_VERSION = 'manage_v3'` — записывается в каждое событие бота.
+
+**Строгий контракт ответа (manage_v3):**
+
+```json
+{
+  "symbol": "BTCUSDT",
+  "action": "CLOSE_FULL|CLOSE_PARTIAL|MOVE_STOP_TO_BREAKEVEN|AVERAGE_IN_ONCE|DO_NOTHING",
+  "confidence": 75,
+  "reason": "1-3 sentences",
+  "risk": "low|medium|high",
+  "params": { "close_fraction": 0.3, "average_size_usdt": null },
+  "checks": { "pnl_positive": true, "trend": "bearish", "averaging_allowed": false }
+}
+```
+- Обязательные поля: `symbol`, `action`, `confidence`, `reason`, `risk`
+- При невалидном JSON или отсутствии полей → `DO_NOTHING` + `llm_invalid_response` в историю + алерт
+
 **Ключевые методы:**
 
 | Метод | Описание |
 |---|---|
-| `requestLLMContent(purpose, messages, temperature, maxTokens)` | Унифицированный вызов: сначала ChatGPT, при ошибке — DeepSeek |
-| `hasAnyProvider()` | Проверяет наличие хотя бы одного настроенного LLM |
+| `requestLLMRaw(...)` | Возвращает `{content, provider, error}` — фиксирует провайдера и ошибку |
 | `getProposals(bybitService)` | Анализирует топ-25 монет, возвращает предложения (confidence ≥ 60) |
-| `manageOpenPositions(bybitService, positions)` | Решения по открытым позициям (см. раздел 9) |
+| `manageOpenPositions(bybitService, positions)` | Решения по открытым позициям. Строгая валидация схемы |
 | `analyzeMarket(symbol, marketData)` | Анализ отдельной монеты, сигнал BUY/SELL/HOLD |
 | `testConnection()` | Проверка LLM: возвращает `ok`, `error`, `raw` |
 
@@ -248,6 +269,32 @@ bybit_trader/
 Управляет "замками" на позиции в `var/position_locks.json`. Заблокированные позиции бот не трогает.
 
 **Ключ записи:** `"SYMBOL|Side"` (например, `"BTCUSDT|Buy"`).
+
+---
+
+### `AlertService`
+
+Отправляет уведомления в Telegram и/или на generic webhook (Slack, Discord и т.д.).
+
+**Настройки** (`settings['alerts']`): `telegram_bot_token`, `telegram_chat_id`, `webhook_url`, флаги `on_llm_failure`, `on_invalid_response`, `on_risk_limit`, `on_bybit_error`, `on_repeated_failures`, `repeated_failure_threshold`.
+
+**Методы:** `alertLLMFailure()`, `alertInvalidResponse()`, `alertRiskLimit()`, `alertBybitError()`, `alertRepeatedFailures()`, `send(level, message, context)`.
+
+---
+
+### `BotMetricsService`
+
+Агрегирует метрики из `BotHistoryService` без дополнительного хранилища.
+
+**`getMetrics(days=30)`** возвращает:
+- `tick_count`, `llm_failures`, `invalid_responses`
+- `proposed` / `executed` / `skipped` / `failed` / `execution_rate_pct`
+- `by_action` — разбивка по типам действий с `wins`, `losses`, `win_rate`, `total_pnl`
+- `skip_reasons` — частота каждой причины пропуска
+
+**`getRecentDecisions(limit=100)`** — последние события с полным trace-данными для UI.
+
+**`getLastDecisionPerPosition()`** — последнее LLM-решение per `symbol|side` для колонки "Почему?" в таблице позиций.
 
 ---
 
