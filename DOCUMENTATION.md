@@ -1,6 +1,6 @@
 # Bybit Trader — Документация
 
-> Последнее обновление: 01.03.2026 (rev 3)
+> Последнее обновление: 25.02.2026 (rev 4)
 
 ## Содержание
 
@@ -99,7 +99,9 @@ bybit_trader/
 ├── var/
 │   ├── settings.json                 ← конфигурация (торговые параметры, без API-ключей)
 │   ├── bot_history.json              ← история решений бота (14 дней, макс 1000 записей)
-│   └── position_locks.json           ← заблокированные позиции
+│   ├── position_locks.json           ← заблокированные позиции
+│   ├── bybit_time_offset.json        ← кеш сдвига часов (TTL 5 мин)
+│   └── instrument_cache.json         ← кеш инструментов Bybit (TTL 1 ч)
 ├── .env                              ← дефолтные ENV-переменные (коммитится в git)
 ├── .env.local                        ← секреты и переопределения (НЕ коммитится)
 └── DOCUMENTATION.md
@@ -111,30 +113,49 @@ bybit_trader/
 
 ### `BybitService`
 
-Вся коммуникация с Bybit API v5.
+Вся коммуникация с Bybit API v5. Содержит многоуровневый слой надёжности:
 
 **Ключевые методы:**
 
 | Метод | Описание |
 |---|---|
 | `getPositions()` | Список открытых позиций (обогащает `liqPrice`, `stopLoss`, `takeProfit`) |
-| `getTopMarkets(limit, category)` | Топ монет по обороту. Дедупликация: предпочитает `*PERP` над `*USDT` при совпадении базового актива |
-| `getKlineHistory(symbol, intervalMinutes, limit, maxPricePoints)` | Исторические свечи с Bybit `/v5/market/kline`. Публичный API. Возвращает компактную строку для LLM (OHLCV → close-цены + сводка) |
+| `getTopMarkets(limit, category)` | Топ монет по обороту. Дедупликация: предпочитает `*PERP` над `*USDT`. Фильтрует dated-контракты |
+| `getKlineHistory(symbol, intervalMinutes, limit, maxPricePoints)` | Исторические свечи с Bybit `/v5/market/kline`. Использует канонический `*USDT`-символ |
 | `getBalance()` | Баланс кошелька (USDT available + wallet balance) |
 | `getStatistics()` | Статистика: totalTrades, winRate, totalProfit, drawdown. Фоллбэк: `getClosedTrades` → `getTrades` |
-| `placeOrder(symbol, side, positionSizeUSDT, leverage)` | Открытие позиции. Включает: setLeverage, switchIsolated, createOrder. Валидирует qty и leverage по instrumentInfo |
+| `placeOrder(symbol, side, positionSizeUSDT, leverage)` | Открытие позиции. Включает: setLeverage, switchIsolated, createOrder. Валидирует qty и leverage по instrumentInfo. Логирует параметры перед отправкой |
 | `closePositionMarket(symbol, side, fraction)` | Закрытие позиции (полное или частичное). Пропускает если qty < minOrderQty |
 | `setBreakevenStopLoss(symbol, side, entryPrice)` | Перенос стопа в безубыток. Пропускает если позиция в убытке |
-| `getInstrumentInfo(symbol, settings)` | Параметры инструмента (lotSizeFilter, leverageFilter). Кешируется |
 | `getOpenOrders(symbol)` | Открытые ордера. Включает `triggerPrice` для условных ордеров |
 | `getTrades(limit)` | История исполненных ордеров |
 | `getClosedTrades(limit)` | История закрытых позиций (P&L) |
-| `testConnection()` | Проверка подключения к Bybit |
+| `testConnection()` | Проверка подключения + показывает сдвиг часов с сервером Bybit |
+
+**HTTP-слой надёжности (`requestWithRetry`):**
+- **Ретраи с экспоненциальным backoff** (1s → 2s → 4s, до 3 попыток) на сетевые ошибки и HTTP 5xx.
+- **Rate-limit**: HTTP 429 ждёт `Retry-After` (заголовок), Bybit retCode `10006` — ждёт и повторяет.
+
+**Синхронизация времени (`getServerTimeOffset`):**
+- Вызывает `GET /v5/market/time`, вычисляет сдвиг `serverTime − localTime` в миллисекундах.
+- Кеш в `var/bybit_time_offset.json`, TTL 5 минут; инвалидируется при timestamp-ошибках.
+- Используется вместо простого `time() * 1000` при формировании подписи → устраняет ошибку `invalid request, please check your server timestamp`.
+
+**Кеш инструментов (`getInstrumentInfo`):**
+- Двухуровневый: in-memory (per request) + дисковый `var/instrument_cache.json`, TTL 1 час.
+- Принудительное обновление (`forceRefresh=true`) при qty-ошибках Bybit (retCode 110017, 110009, 170036, 170037, 110043).
+
+**Канонический символ (`toCanonicalSymbol`):**
+- `BTCPERP → BTCUSDT`, `ETHPERP → ETHUSDT` и т.д.
+- Используется в `getMarketData()` и `getKlineHistory()` — гарантирует, что рыночные данные запрашиваются по стандартному `*USDT`-тикеру.
+- Позиции и ордера открываются по исходному символу (из `getTopMarkets`).
+
+**Pre-order log (без секретов):**
+Перед каждым `placeOrder` в лог пишется: symbol, side, requestedUSDT, price, rawQty, qty, leverage, minQty, maxQty, step, levRange.
 
 **Аутентификация:**
-- HMAC-SHA256, `recvWindow=20000` (увеличено для компенсации расхождения часов)
-- POST: подпись по JSON-body строке
-- GET: подпись по строке параметров
+- HMAC-SHA256, `recvWindow=20000`, timestamp скорректирован на server offset.
+- POST: подпись по JSON-body строке; GET: по строке параметров.
 
 **Изолированная маржа:**
 Каждый вызов `placeOrder` устанавливает изолированную маржу (`tradeMode=1`) для конкретной позиции.
@@ -452,26 +473,55 @@ LLM получает:
 - Testnet: `https://api-testnet.bybit.com`
 - Mainnet: `https://api.bybit.com`
 
-**Аутентификация (GET-запрос):**
+### Аутентификация
+
 ```
-timestamp = unixtime_ms
-signStr = timestamp + api_key + recvWindow + queryString
+offset    = serverTime − localTime          // из GET /v5/market/time, кешируется 5 мин
+timestamp = now_ms + offset
+signStr   = timestamp + api_key + recvWindow + queryString   // GET
+signStr   = timestamp + api_key + recvWindow + body          // POST
 signature = HMAC_SHA256(signStr, api_secret)
 Headers: X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-SIGN-TYPE=2, X-BAPI-TIMESTAMP, X-BAPI-RECV-WINDOW=20000
 ```
 
-**Важные нюансы Bybit:**
-- `recvWindow=20000` (20 секунд) — для компенсации расхождения часов
-- Линейные контракты требуют `settleCoin=USDT` или `symbol` в параметрах
-- `getTopMarkets` дедуплицирует `*USDT` и `*PERP` по базовому активу (предпочтение у `PERP`)
-- `placeOrder` сначала вызывает `set-leverage` и `switch-isolated` (tradeMode=1), затем `order/create`
-- Количество контрактов рассчитывается: `qty = floor(positionSizeUSDT / price / qtyStep) * qtyStep`
-- Если `qty < minOrderQty` — возвращается ошибка с минимальной суммой в USDT
+### Слой надёжности
 
-**Known issues на testnet:**
-- `liqPrice` может быть пустым (UTA считает ликвидацию на уровне портфеля)
-- `getClosedTrades` может возвращать пустой массив (фоллбэк на `getTrades`)
-- Некоторые символы (например, `BTCUSDT`) на testnet имеют некорректные исторические цены
+| Механизм | Поведение |
+|---|---|
+| **Retry + backoff** | До 3 попыток; паузы 1s → 2s → 4s. Применяется при сетевых ошибках и HTTP 5xx |
+| **Rate-limit (HTTP 429)** | Читает `Retry-After` заголовок, ждёт (мин 1с, макс 30с), затем повторяет |
+| **Rate-limit (retCode 10006)** | Bybit-уровень; backoff + повтор |
+| **Timestamp re-sync** | При retCode 10002 — инвалидирует кеш сдвига, делает повтор |
+| **Instrument cache invalidation** | При qty-ошибках (110017, 110009, 170036, 170037, 110043) — сбрасывает кеш инструмента и логирует |
+
+### Кеш инструментов
+
+- Хранится в `var/instrument_cache.json` (TTL 1 час)
+- In-memory layer для повторных вызовов внутри одного запроса
+- При qty-ошибке: `invalidateInstrumentCache(symbol)` → следующий `placeOrder` получит свежие данные
+
+### Символы
+
+| Правило | Пример |
+|---|---|
+| `*PERP` → `*USDT` для market-data/kline | `BTCPERP` → `BTCUSDT` |
+| Dated-контракты фильтруются | `MNTUSDT-13MAR26` → исключён из топа |
+| Дедупликация: предпочтение `*PERP` на testnet | `BTCPERP` выигрывает у `BTCUSDT` в `getTopMarkets` |
+
+### Расчёт qty
+
+```
+rawQty = positionSizeUSDT / price
+qty    = floor(rawQty / qtyStep) * qtyStep   // выравнивание по шагу
+```
+Если `qty < minOrderQty` → ошибка с указанием минимальной суммы в USDT.  
+Перед отправкой в лог пишется: symbol, side, USDT, price, rawQty, qty, leverage, minQty, maxQty, step, levRange (без ключей).
+
+### Известные особенности testnet
+
+- `liqPrice` может быть пустым — UTA считает ликвидацию на уровне портфеля
+- `getClosedTrades` может возвращать пустой список → фоллбэк на `getTrades`
+- `BTCUSDT` на testnet имеет некорректные исторические цены; `BTCPERP` — корректные
 
 ---
 
@@ -530,6 +580,9 @@ Headers: X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-SIGN-TYPE=2, X-BAPI-TIMESTAMP, X-BA
 | `var/settings.json` | Настройки приложения (без API-ключей) | — |
 | `var/bot_history.json` | История событий бота | 14 дней, 1 000 записей |
 | `var/position_locks.json` | Заблокированные позиции | — |
+| `var/pending_actions.json` | Действия бота, ожидающие подтверждения (strict mode) | TTL 60 мин |
+| `var/bybit_time_offset.json` | Кеш сдвига часов между локальным временем и сервером Bybit | TTL 5 мин |
+| `var/instrument_cache.json` | Кеш параметров инструментов Bybit (lotSizeFilter, leverageFilter) | TTL 1 ч / запись |
 
 История цен монет хранится **на стороне Bybit** и запрашивается через `/v5/market/kline` при каждом тике — локальный файл не нужен.
 
