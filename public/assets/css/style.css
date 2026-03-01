@@ -88,6 +88,8 @@ a { color: inherit; text-decoration: none; }
     height: 40px;
     width: auto;
     display: block;
+    /* Invert colours for dark navbar — white → black (hides on dark bg), navy → cream/white */
+    filter: invert(1);
 }
 
 .brand-logo-fallback {
@@ -99,6 +101,14 @@ a { color: inherit; text-decoration: none; }
 
 .brand-logo-fallback span {
     color: var(--brand-orange);
+}
+
+/* Inverted icon used inline (e.g. small places on dark bg) */
+.brand-icon-img {
+    height: 20px;
+    width: auto;
+    filter: invert(1);
+    vertical-align: middle;
 }
 
 @media (max-width: 768px) {
