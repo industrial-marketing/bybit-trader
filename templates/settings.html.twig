@@ -1,6 +1,6 @@
 {% extends 'base.html.twig' %}
 
-{% block title %}Настройки - Bybit Trader{% endblock %}
+{% block title %}Настройки — Bybit Trader{% endblock %}
 
 {% block scripts %}
 <script src="/assets/js/settings.js"></script>
@@ -8,67 +8,80 @@
 
 {% block content %}
 <div class="settings">
-    <h2>Настройки</h2>
-    
+
+    <div class="dashboard-header" style="margin-bottom:24px;">
+        <h2><i class="bi bi-gear-fill"></i> Настройки</h2>
+    </div>
+
+    {# ── Bybit API ────────────────────────────────────────────── #}
     <div class="settings-section">
-        <h3>Bybit API</h3>
+        <h3><i class="bi bi-plug-fill"></i> Bybit API</h3>
         <form id="bybit-settings-form">
             <div class="form-group">
                 <label>API Key:</label>
-                <input type="text" id="bybit-api-key" name="api_key" placeholder="Введите API Key">
+                <input type="text" id="bybit-api-key" name="api_key" placeholder="Введите API Key" autocomplete="off">
             </div>
             <div class="form-group">
                 <label>API Secret:</label>
-                <input type="password" id="bybit-api-secret" name="api_secret" placeholder="Введите API Secret">
-            </div>
-            <div class="form-group">
-                <label>Testnet:</label>
-                <input type="checkbox" id="bybit-testnet" name="testnet" checked>
-                <span>Использовать тестовую сеть</span>
+                <input type="password" id="bybit-api-secret" name="api_secret" placeholder="Введите API Secret" autocomplete="off">
             </div>
             <div class="form-group">
                 <label>Base URL:</label>
                 <input type="text" id="bybit-base-url" name="base_url" placeholder="https://api-testnet.bybit.com">
             </div>
+            <div class="form-group">
+                <input type="checkbox" id="bybit-testnet" name="testnet" checked>
+                <span>Использовать тестовую сеть (Testnet)</span>
+            </div>
             <div class="buttons-row">
-                <button type="submit" class="btn-primary">Сохранить</button>
-                <button type="button" id="bybit-test-btn" class="btn-secondary">Проверить подключение</button>
+                <button type="submit" class="btn-primary">
+                    <i class="bi bi-floppy-fill"></i> Сохранить
+                </button>
+                <button type="button" id="bybit-test-btn" class="btn-secondary">
+                    <i class="bi bi-wifi"></i> Проверить подключение
+                </button>
             </div>
         </form>
     </div>
 
+    {# ── ChatGPT API ──────────────────────────────────────────── #}
     <div class="settings-section">
-        <h3>ChatGPT API</h3>
+        <h3><i class="bi bi-stars"></i> ChatGPT API</h3>
         <form id="chatgpt-settings-form">
             <div class="form-group">
                 <label>API Key:</label>
-                <input type="text" id="chatgpt-api-key" name="api_key" placeholder="Введите OpenAI API Key">
+                <input type="text" id="chatgpt-api-key" name="api_key" placeholder="Введите OpenAI API Key" autocomplete="off">
             </div>
             <div class="form-group">
                 <label>Модель:</label>
                 <select id="chatgpt-model" name="model">
+                    <option value="gpt-4o">GPT-4o</option>
                     <option value="gpt-4">GPT-4</option>
                     <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
                 </select>
             </div>
             <div class="form-group">
-                <label>Включено:</label>
                 <input type="checkbox" id="chatgpt-enabled" name="enabled">
                 <span>Использовать ChatGPT для анализа</span>
             </div>
             <div class="buttons-row">
-                <button type="submit" class="btn-primary">Сохранить</button>
-                <button type="button" id="chatgpt-test-btn" class="btn-secondary">Проверить подключение</button>
+                <button type="submit" class="btn-primary">
+                    <i class="bi bi-floppy-fill"></i> Сохранить
+                </button>
+                <button type="button" id="chatgpt-test-btn" class="btn-secondary">
+                    <i class="bi bi-wifi"></i> Проверить подключение
+                </button>
             </div>
         </form>
     </div>
 
+    {# ── DeepSeek API ─────────────────────────────────────────── #}
     <div class="settings-section">
-        <h3>DeepSeek API (альтернативный LLM)</h3>
+        <h3><i class="bi bi-cpu-fill"></i> DeepSeek API (альтернативный LLM)</h3>
         <form id="deepseek-settings-form">
             <div class="form-group">
                 <label>API Key:</label>
-                <input type="text" id="deepseek-api-key" name="api_key" placeholder="Введите DeepSeek API Key">
+                <input type="text" id="deepseek-api-key" name="api_key" placeholder="Введите DeepSeek API Key" autocomplete="off">
             </div>
             <div class="form-group">
                 <label>Модель:</label>
@@ -78,19 +91,23 @@
                 </select>
             </div>
             <div class="form-group">
-                <label>Включено:</label>
                 <input type="checkbox" id="deepseek-enabled" name="enabled">
                 <span>Использовать DeepSeek, если ChatGPT недоступен</span>
             </div>
             <div class="buttons-row">
-                <button type="submit" class="btn-primary">Сохранить</button>
-                <button type="button" id="deepseek-test-btn" class="btn-secondary">Проверить подключение</button>
+                <button type="submit" class="btn-primary">
+                    <i class="bi bi-floppy-fill"></i> Сохранить
+                </button>
+                <button type="button" id="deepseek-test-btn" class="btn-secondary">
+                    <i class="bi bi-wifi"></i> Проверить подключение
+                </button>
             </div>
         </form>
     </div>
 
+    {# ── Trading parameters ────────────────────────────────────── #}
     <div class="settings-section">
-        <h3>Торговые параметры</h3>
+        <h3><i class="bi bi-sliders"></i> Торговые параметры</h3>
         <form id="trading-settings-form">
             <div class="form-group">
                 <label>Максимальный размер сделки (USDT):</label>
@@ -121,7 +138,6 @@
                 <input type="number" min="0" id="trading-auto-open-min" name="auto_open_min_positions" placeholder="Например, 5">
             </div>
             <div class="form-group">
-                <label>Автооткрытие сделок ботом:</label>
                 <input type="checkbox" id="trading-auto-open-enabled" name="auto_open_enabled">
                 <span>Разрешить боту самостоятельно открывать сделки, если позиций меньше порога</span>
             </div>
@@ -136,7 +152,7 @@
                     <option value="240">4 часа</option>
                     <option value="1440">1 день</option>
                 </select>
-                <span class="hint">Бот запускается каждую минуту, но принимает решения только раз в выбранный период. История цен собирается по всем таймфреймам одновременно.</span>
+                <span class="hint">Бот запускается каждую минуту, но принимает решения только раз в выбранный период.</span>
             </div>
             <div class="form-group">
                 <label>Свечей истории для анализа (макс. 60):</label>
@@ -144,50 +160,52 @@
                 <span class="hint">Сколько последних свечей выбранного таймфрейма передавать боту при каждом анализе.</span>
             </div>
             <div class="buttons-row">
-                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="submit" class="btn-primary">
+                    <i class="bi bi-floppy-fill"></i> Сохранить
+                </button>
             </div>
         </form>
     </div>
 
-    <div class="settings-section" style="border-color: #f85149;">
-        <h3 style="color: #f85149;">⚡ Защита от потерь (Risk Guards)</h3>
+    {# ── Risk Guards ───────────────────────────────────────────── #}
+    <div class="settings-section" style="border-color: rgba(239,68,68,0.4);">
+        <h3 style="color: var(--negative);"><i class="bi bi-shield-exclamation" style="color:var(--negative)"></i> Защита от потерь (Risk Guards)</h3>
         <form id="risk-settings-form">
             <div class="form-group">
-                <label>Торговля разрешена:</label>
                 <input type="checkbox" id="risk-trading-enabled" name="trading_enabled" checked>
-                <span>Снимите галочку, чтобы заблокировать ВСЕ торговые операции бота и ручное открытие.</span>
+                <span><strong>Торговля разрешена</strong> — снимите галочку, чтобы заблокировать ВСЕ торговые операции.</span>
             </div>
             <div class="form-group">
                 <label>Дневной лимит потерь (USDT):</label>
                 <input type="number" step="0.01" min="0" id="risk-daily-loss" name="daily_loss_limit_usdt" placeholder="0 = отключено">
-                <span class="hint">Если суммарный PnL за день опустится ниже −X USDT, бот автоматически остановится. 0 — лимит не установлен.</span>
+                <span class="hint">Если суммарный PnL за день опустится ниже −X USDT, бот автоматически остановится.</span>
             </div>
             <div class="form-group">
                 <label>Максимальный суммарный риск (USDT маржи):</label>
                 <input type="number" step="0.01" min="0" id="risk-max-exposure" name="max_total_exposure_usdt" placeholder="0 = отключено">
-                <span class="hint">Сумма всех маржинальных залогов (notional/leverage). Если превышена — новые позиции не открываются. 0 — лимит не установлен.</span>
+                <span class="hint">Сумма всех маржинальных залогов (notional/leverage). Если превышена — новые позиции не открываются.</span>
             </div>
             <div class="form-group">
                 <label>Кулдаун между действиями по символу (мин):</label>
                 <input type="number" min="0" id="risk-cooldown" name="action_cooldown_minutes" placeholder="30">
-                <span class="hint">Минимальный интервал между торговыми действиями по одной и той же монете. 0 — без ограничений.</span>
+                <span class="hint">Минимальный интервал между торговыми действиями по одной монете. 0 — без ограничений.</span>
             </div>
             <div class="form-group">
-                <label>Строгий режим (двухфазное исполнение):</label>
                 <input type="checkbox" id="risk-strict-mode" name="bot_strict_mode">
-                <span>CLOSE_FULL и AVERAGE_IN требуют ручного подтверждения. Применяется только к боту.</span>
+                <span><strong>Строгий режим:</strong> CLOSE_FULL и AVERAGE_IN требуют ручного подтверждения.</span>
             </div>
             <div class="buttons-row">
-                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="submit" class="btn-danger">
+                    <i class="bi bi-floppy-fill"></i> Сохранить
+                </button>
             </div>
         </form>
     </div>
 
-    <div class="settings-section" style="border-color: #58a6ff;">
-        <h3 style="color: #58a6ff;">🔔 Алерты (Telegram / Webhook)</h3>
-        <p style="color:#8b949e;font-size:0.85rem;margin-bottom:14px;">
-            Получайте уведомления о сбоях LLM, ошибках Bybit, превышении лимитов риска.
-        </p>
+    {# ── Alerts ────────────────────────────────────────────────── #}
+    <div class="settings-section" style="border-color: rgba(16,185,129,0.3);">
+        <h3><i class="bi bi-bell-fill" style="color:var(--positive)"></i> Алерты (Telegram / Webhook)</h3>
+        <p class="section-desc">Получайте уведомления о сбоях LLM, ошибках Bybit, превышении лимитов риска.</p>
         <form id="alerts-settings-form">
             <div class="form-group">
                 <label>Telegram Bot Token:</label>
@@ -203,32 +221,36 @@
                 <input type="text" id="alerts-webhook" name="webhook_url" placeholder="https://hooks.slack.com/...">
             </div>
             <div class="form-group">
-                <label>Уведомлять о сбоях LLM:</label>
                 <input type="checkbox" id="alerts-llm-failure" name="on_llm_failure" checked>
+                <span>Уведомлять о сбоях LLM</span>
             </div>
             <div class="form-group">
-                <label>Уведомлять о невалидных ответах LLM:</label>
                 <input type="checkbox" id="alerts-invalid-resp" name="on_invalid_response" checked>
+                <span>Уведомлять о невалидных ответах LLM</span>
             </div>
             <div class="form-group">
-                <label>Уведомлять о превышении лимитов риска:</label>
                 <input type="checkbox" id="alerts-risk-limit" name="on_risk_limit" checked>
+                <span>Уведомлять о превышении лимитов риска</span>
             </div>
             <div class="form-group">
-                <label>Уведомлять об ошибках Bybit API:</label>
                 <input type="checkbox" id="alerts-bybit-error" name="on_bybit_error">
+                <span>Уведомлять об ошибках Bybit API</span>
             </div>
             <div class="form-group">
-                <label>Уведомлять о повторяющихся ошибках:</label>
                 <input type="checkbox" id="alerts-repeated" name="on_repeated_failures" checked>
+                <span>Уведомлять о повторяющихся ошибках</span>
             </div>
             <div class="form-group">
                 <label>Порог повторяющихся ошибок (подряд):</label>
                 <input type="number" min="1" id="alerts-threshold" name="repeated_failure_threshold" value="3">
             </div>
             <div class="buttons-row">
-                <button type="submit" class="btn-primary">Сохранить</button>
-                <button type="button" id="test-alert-btn" class="btn-secondary">Тестовый алерт</button>
+                <button type="submit" class="btn-primary">
+                    <i class="bi bi-floppy-fill"></i> Сохранить
+                </button>
+                <button type="button" id="test-alert-btn" class="btn-secondary">
+                    <i class="bi bi-send"></i> Тестовый алерт
+                </button>
             </div>
         </form>
     </div>

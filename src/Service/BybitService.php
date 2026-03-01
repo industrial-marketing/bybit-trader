@@ -126,11 +126,9 @@ class BybitService
         $cacheFile = __DIR__ . '/../../var/bybit_time_offset.json';
         $ttlSec    = 300; // 5 minutes
 
-        if (file_exists($cacheFile)) {
-            $cached = json_decode(file_get_contents($cacheFile), true) ?? [];
-            if (isset($cached['ts'], $cached['offset']) && (time() - (int)$cached['ts']) < $ttlSec) {
-                return (int)$cached['offset'];
-            }
+        $cached = AtomicFileStorage::read($cacheFile);
+        if (isset($cached['ts'], $cached['offset']) && (time() - (int)$cached['ts']) < $ttlSec) {
+            return (int)$cached['offset'];
         }
 
         try {
@@ -148,11 +146,7 @@ class BybitService
                 $localMs  = (int)(($localBefore + $localAfter) / 2);
                 $offset   = $serverMs - $localMs;
 
-                $dir = dirname($cacheFile);
-                if (!is_dir($dir)) {
-                    mkdir($dir, 0755, true);
-                }
-                file_put_contents($cacheFile, json_encode(['ts' => time(), 'offset' => $offset]));
+                AtomicFileStorage::write($cacheFile, ['ts' => time(), 'offset' => $offset]);
 
                 if (abs($offset) > 3000) {
                     $this->log(sprintf('Time offset with Bybit server: %+d ms (|offset|>3s)', $offset));
@@ -261,21 +255,12 @@ class BybitService
 
     private function loadInstrumentDiskCache(): array
     {
-        $file = $this->instrumentCacheFile();
-        if (!file_exists($file)) {
-            return [];
-        }
-        return json_decode(file_get_contents($file), true) ?? [];
+        return AtomicFileStorage::read($this->instrumentCacheFile());
     }
 
     private function saveInstrumentDiskCache(array $cache): void
     {
-        $file = $this->instrumentCacheFile();
-        $dir  = dirname($file);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-        file_put_contents($file, json_encode($cache, JSON_PRETTY_PRINT));
+        AtomicFileStorage::write($this->instrumentCacheFile(), $cache);
     }
 
     private function getInstrumentInfo(string $symbol, array $settings, bool $forceRefresh = false): array

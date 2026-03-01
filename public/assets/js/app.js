@@ -187,26 +187,39 @@ function loadPositions() {
                 const levText = position.leverage != null ? String(position.leverage) + 'x' : '-';
                 const sideRaw = (position.side || '').toUpperCase();
                 const sideText = sideRaw === 'BUY' ? 'Long' : sideRaw === 'SELL' ? 'Short' : (position.side || '');
-                const sideClass = sideRaw === 'BUY' ? 'profit' : sideRaw === 'SELL' ? 'loss' : '';
+                const sideBadge = sideRaw === 'BUY'
+                    ? `<span class="side-long">↑ Long</span>`
+                    : sideRaw === 'SELL'
+                        ? `<span class="side-short">↓ Short</span>`
+                        : sideText;
                 const whyHtml = renderWhyBadge(position.lastDecision || null);
+                const lockIcon = locked ? 'bi-lock-fill' : 'bi-unlock';
+                const lockLabel = locked ? 'Разблок.' : 'Замок';
+                const botStatusHtml = locked
+                    ? `<span class="lock-badge"><i class="bi bi-lock-fill"></i> LOCKED</span>`
+                    : `<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Разрешен</span>`;
 
                 html += `
                     <tr data-symbol="${position.symbol}" data-side="${position.side}">
                         <td><strong>${position.symbol}</strong></td>
-                        <td class="${sideClass}">${sideText}</td>
-                        <td>${position.size}</td>
-                        <td>${entryUsdt ? entryUsdt.toFixed(2) : '-'}</td>
-                        <td>${levText}</td>
-                        <td>${entryPrice ? entryPrice.toFixed(2) : '-'}</td>
-                        <td>${parseFloat(position.markPrice).toFixed(2)}</td>
-                        <td>${liqText}</td>
-                        <td class="${pnlClass}">${pnlSign}${pnl.toFixed(2)}</td>
+                        <td>${sideBadge}</td>
+                        <td class="num">${position.size}</td>
+                        <td class="num">${entryUsdt ? entryUsdt.toFixed(2) : '-'}</td>
+                        <td class="num">${levText}</td>
+                        <td class="num">${entryPrice ? entryPrice.toFixed(2) : '-'}</td>
+                        <td class="num">${parseFloat(position.markPrice).toFixed(2)}</td>
+                        <td class="num">${liqText}</td>
+                        <td class="num ${pnlClass}">${pnlSign}${pnl.toFixed(2)}</td>
                         <td>${position.openedAt}</td>
                         <td class="why-cell">${whyHtml}</td>
-                        <td>${botStatus}</td>
-                        <td>
-                            <button type="button" class="btn-small btn-pos-lock">${locked ? 'Разблок.' : 'Замок'}</button>
-                            <button type="button" class="btn-small btn-pos-close">Закрыть</button>
+                        <td>${botStatusHtml}</td>
+                        <td style="white-space:nowrap;">
+                            <button type="button" class="btn-small btn-icon-lock btn-pos-lock" title="${lockLabel}">
+                                <i class="bi ${lockIcon}"></i>
+                            </button>
+                            <button type="button" class="btn-small btn-icon-danger btn-pos-close" title="Закрыть позицию">
+                                <i class="bi bi-x-circle"></i>
+                            </button>
                         </td>
                     </tr>
                 `;
@@ -360,8 +373,11 @@ function runBotTick() {
         success: function(res) {
             const msg = res && res.summary ? res.summary : (res && res.message ? res.message : 'Бот выполнен');
             console.log('Bot tick:', res);
-            // Фидбек по статусу бота
-            $('#bot-status-message').removeClass('error').addClass('success').text(msg);
+            const alertClass = res && res.skipped ? 'warning' : 'success';
+            const alertIcon  = res && res.skipped ? 'bi-skip-forward-circle' : 'bi-check-circle-fill';
+            $('#bot-status-message').html(
+                `<div class="bot-alert ${alertClass}"><i class="bi ${alertIcon}"></i><span>${msg}</span></div>`
+            );
             // Лёгкий визуальный фидбек через текст кнопки
             $btn.text('Готово');
             // Обновим данные на дашборде после действий бота
@@ -374,7 +390,9 @@ function runBotTick() {
         },
         error: function(xhr) {
             console.error('Bot tick error', xhr);
-            $('#bot-status-message').removeClass('success').addClass('error').text('Ошибка запуска бота');
+            $('#bot-status-message').html(
+                `<div class="bot-alert error"><i class="bi bi-exclamation-triangle-fill"></i><span>Ошибка запуска бота</span></div>`
+            );
             $btn.text('Ошибка');
             setTimeout(function() {
                 $btn.text(originalText);
@@ -514,16 +532,18 @@ function loadProposals() {
             }
             let html = '';
             data.forEach(function(p) {
-                const sideText = (p.signal || '').toUpperCase() === 'BUY' ? 'Long' : 'Short';
-                const sideClass = sideText === 'Long' ? 'profit' : 'loss';
+                const isBuy = (p.signal || '').toUpperCase() === 'BUY';
+                const sideBadge = isBuy
+                    ? `<span class="side-long">↑ Long</span>`
+                    : `<span class="side-short">↓ Short</span>`;
                 html += `<tr data-proposal='${JSON.stringify(p).replace(/'/g, "&#39;")}'>
                     <td><strong>${p.symbol}</strong></td>
-                    <td class="${sideClass}">${sideText}</td>
+                    <td>${sideBadge}</td>
                     <td>${p.confidence}%</td>
-                    <td>${(p.positionSizeUSDT != null ? p.positionSizeUSDT : 10).toFixed(2)}</td>
-                    <td>${p.leverage || 1}x</td>
+                    <td class="num">${(p.positionSizeUSDT != null ? p.positionSizeUSDT : 10).toFixed(2)}</td>
+                    <td class="num">${p.leverage || 1}x</td>
                     <td title="${(p.reason || '').replace(/"/g, '&quot;')}">${(p.reason || '').substring(0, 50)}${(p.reason || '').length > 50 ? '…' : ''}</td>
-                    <td><button type="button" class="btn-open-deal btn-small">Открыть</button></td>
+                    <td><button type="button" class="btn-open-deal btn-small"><i class="bi bi-plus-lg"></i> Открыть</button></td>
                 </tr>`;
             });
             $tbody.html(html);
@@ -800,12 +820,12 @@ function renderPendingTable(items) {
         rows += `<tr>
             <td>${(item.created_at || '').replace('T',' ')}</td>
             <td>${item.symbol || '—'}</td>
-            <td>${item.side === 'Buy' ? '<span class="side-long">Long</span>' : '<span class="side-short">Short</span>'}</td>
+            <td>${item.side === 'Buy' ? '<span class="side-long">↑ Long</span>' : '<span class="side-short">↓ Short</span>'}</td>
             <td><strong>${item.action || '—'}</strong></td>
-            <td style="color:${pnlColor}">${pnl}</td>
+            <td class="${item.pnlAtDecision > 0 ? 'profit' : item.pnlAtDecision < 0 ? 'loss' : ''}">${pnl}</td>
             <td style="font-size:0.8em">${item.note || ''}</td>
-            <td><button class="btn-primary btn-sm btn-confirm-pending" data-id="${item.id}">✓ Да</button></td>
-            <td><button class="btn-secondary btn-sm btn-reject-pending" data-id="${item.id}">✗ Нет</button></td>
+            <td><button class="btn-success btn-sm btn-confirm-pending" data-id="${item.id}"><i class="bi bi-check2"></i> Да</button></td>
+            <td><button class="btn-secondary btn-sm btn-reject-pending" data-id="${item.id}"><i class="bi bi-x"></i> Нет</button></td>
         </tr>`;
     });
     $('#pending-table tbody').html(rows);

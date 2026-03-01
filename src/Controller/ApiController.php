@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Service\AlertService;
 use App\Service\BotHistoryService;
 use App\Service\BotMetricsService;
+use App\Service\BotRunService;
 use App\Service\BybitService;
 use App\Service\ChatGPTService;
 use App\Service\PendingActionsService;
@@ -29,6 +30,7 @@ class ApiController extends AbstractController
         private readonly PendingActionsService $pendingActions,
         private readonly BotMetricsService     $botMetrics,
         private readonly AlertService          $alertService,
+        private readonly BotRunService         $botRunService,
     ) {}
 
     // ── Positions / orders / trades ───────────────────────────────
@@ -142,6 +144,13 @@ class ApiController extends AbstractController
         return $this->json($this->botMetrics->getRecentDecisions($limit));
     }
 
+    #[Route('/bot/runs', name: 'api_bot_runs', methods: ['GET'])]
+    public function getBotRuns(Request $request): JsonResponse
+    {
+        $limit = (int)($request->query->get('limit') ?? 30);
+        return $this->json($this->botRunService->getRecentRuns($limit));
+    }
+
     // ── Bot tick ──────────────────────────────────────────────────
 
     #[Route('/bot/tick', name: 'api_bot_tick', methods: ['POST', 'GET'])]
@@ -156,16 +165,12 @@ class ApiController extends AbstractController
             ]);
         }
 
-        $trading          = $this->settingsService->getTradingSettings();
-        $autoEnabled      = $trading['auto_open_enabled']     ?? false;
-        $minPositions     = max(0, (int)($trading['auto_open_min_positions'] ?? 5));
-        $maxManaged       = max(1, (int)($trading['max_managed_positions']   ?? 10));
-        $botTimeframe     = max(1, (int)($trading['bot_timeframe']           ?? 5));
-        $historyCandles   = max(1, min(60, (int)($trading['bot_history_candles'] ?? 60)));
-        $minIntervalSec   = $botTimeframe * 60;
-
-        $positions = $this->bybitService->getPositions();
-        $openCount = count($positions);
+        $trading        = $this->settingsService->getTradingSettings();
+        $autoEnabled    = $trading['auto_open_enabled']     ?? false;
+        $minPositions   = max(0, (int)($trading['auto_open_min_positions'] ?? 5));
+        $maxManaged     = max(1, (int)($trading['max_managed_positions']   ?? 10));
+        $botTimeframe   = max(1, (int)($trading['bot_timeframe']           ?? 5));
+        $historyCandles = max(1, min(60, (int)($trading['bot_history_candles'] ?? 60)));
 
         // ── Daily loss limit ─────────────────────────────────────────
         $dailyCheck = $this->riskGuard->checkDailyLossLimit();
@@ -178,26 +183,26 @@ class ApiController extends AbstractController
             ]);
         }
 
-        // ── Timeframe throttle ───────────────────────────────────────
-        $tfLabel  = match (true) {
+        // ── Idempotency / timeframe throttle (atomic, flock-protected) ───
+        $tfLabel = match (true) {
             $botTimeframe >= 1440 => '1d',
             $botTimeframe >= 60   => ($botTimeframe / 60) . 'h',
             default               => "{$botTimeframe}m",
         };
-        $lastTick = $this->botHistory->getLastEventOfType('bot_tick');
-        if ($lastTick && !empty($lastTick['timestamp'])) {
-            try {
-                $diff = (new \DateTimeImmutable('now'))->getTimestamp()
-                      - (new \DateTimeImmutable($lastTick['timestamp']))->getTimestamp();
-                if ($diff < $minIntervalSec) {
-                    return $this->json([
-                        'ok' => true, 'skipped' => true,
-                        'message' => sprintf('Ждём таймфрейм %s (%d мин). Прошло %ds из %ds.', $tfLabel, $botTimeframe, $diff, $minIntervalSec),
-                        'managed' => [], 'opened' => [], 'openPositionsBefore' => $openCount,
-                    ]);
-                }
-            } catch (\Exception) {}
+        $runId = $this->botRunService->tryStart($botTimeframe);
+        if ($runId === null) {
+            $bucket = $this->botRunService->currentBucket($botTimeframe);
+            return $this->json([
+                'ok'      => true,
+                'skipped' => true,
+                'reason'  => 'timeframe_bucket_done_or_running',
+                'message' => "Тик для окна {$bucket} ({$tfLabel}) уже выполняется или завершён.",
+                'managed' => [], 'opened' => [],
+            ]);
         }
+
+        $positions = $this->bybitService->getPositions();
+        $openCount = count($positions);
 
         // ── Enrich positions with kline history ──────────────────────
         $posCount          = count($positions);
@@ -455,13 +460,17 @@ class ApiController extends AbstractController
             ])) . '.';
 
         $this->botHistory->log('bot_tick', [
+            'run_id'       => $runId,
             'managedCount' => $managedCount,
             'openedCount'  => $openedCount,
             'timeframe'    => $botTimeframe,
         ]);
 
+        $this->botRunService->finish($runId, 'done');
+
         return $this->json([
             'ok' => true, 'message' => 'Bot tick executed', 'summary' => $summary,
+            'run_id'  => $runId,
             'managed' => $managed, 'opened' => $opened, 'openPositionsBefore' => $openCount,
         ]);
     }

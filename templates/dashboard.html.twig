@@ -1,6 +1,6 @@
 {% extends 'base.html.twig' %}
 
-{% block title %}Dashboard - Bybit Trader{% endblock %}
+{% block title %}Dashboard — Bybit Trader{% endblock %}
 
 {% block scripts %}
 <script src="https://s3.tradingview.com/tv.js"></script>
@@ -9,52 +9,61 @@
 
 {% block content %}
 <div class="dashboard">
+
+    {# ── Header with actions ────────────────────────────────────── #}
     <div class="dashboard-header">
-        <h2>Статистика</h2>
+        <h2><i class="bi bi-bar-chart-fill"></i> Статистика</h2>
         <div class="dashboard-header-actions">
-            <button id="refresh-btn" class="btn-secondary">Обновить</button>
-            <button id="bot-tick-btn" class="btn-primary">Запустить бота</button>
+            <button id="refresh-btn" class="btn-secondary" title="Обновить данные">
+                <i class="bi bi-arrow-clockwise"></i> Обновить
+            </button>
+            <button id="bot-tick-btn" class="btn-primary" title="Запустить один тик бота">
+                <i class="bi bi-robot"></i> Запустить бота
+            </button>
         </div>
     </div>
+
     <div id="bot-status-message" class="bot-status-message"></div>
 
+    {# ── Statistics cards ───────────────────────────────────────── #}
     <div class="stats-grid">
         <div class="stat-card">
-            <h3>Баланс USDT</h3>
+            <h3><i class="bi bi-wallet2"></i> Баланс USDT</h3>
             <p id="stat-balance-usdt">-</p>
         </div>
         <div class="stat-card">
-            <h3>Доступно USDT</h3>
+            <h3><i class="bi bi-cash"></i> Доступно USDT</h3>
             <p id="stat-balance-available">-</p>
         </div>
         <div class="stat-card">
-            <h3>Всего сделок</h3>
+            <h3><i class="bi bi-arrow-left-right"></i> Всего сделок</h3>
             <p id="stat-total-trades">-</p>
         </div>
         <div class="stat-card">
-            <h3>Винрейт</h3>
+            <h3><i class="bi bi-trophy"></i> Винрейт</h3>
             <p id="stat-win-rate">-</p>
         </div>
         <div class="stat-card">
-            <h3>Общая прибыль</h3>
+            <h3><i class="bi bi-graph-up-arrow"></i> Общая прибыль</h3>
             <p id="stat-total-profit" class="profit">-</p>
         </div>
         <div class="stat-card">
-            <h3>Средняя прибыль</h3>
+            <h3><i class="bi bi-calculator"></i> Средняя прибыль</h3>
             <p id="stat-avg-profit">-</p>
         </div>
         <div class="stat-card">
-            <h3>Макс. просадка</h3>
+            <h3><i class="bi bi-graph-down-arrow"></i> Макс. просадка</h3>
             <p id="stat-max-drawdown" class="loss">-</p>
         </div>
         <div class="stat-card">
-            <h3>Профит-фактор</h3>
+            <h3><i class="bi bi-percent"></i> Профит-фактор</h3>
             <p id="stat-profit-factor">-</p>
         </div>
     </div>
 
+    {# ── Chart & analysis block ────────────────────────────────── #}
     <div class="section" data-page="dashboard">
-        <h2>Монета: график и анализ</h2>
+        <h2><i class="bi bi-graph-up"></i> Монета: график и анализ</h2>
         <div class="coin-block">
             <div class="coin-select-row">
                 <label>Монета:</label>
@@ -63,21 +72,26 @@
                     <option value="ETHUSDT">ETHUSDT</option>
                     <option value="BNBUSDT">BNBUSDT</option>
                 </select>
-                <button id="analyze-btn" class="btn-primary">Анализировать</button>
+                <button id="analyze-btn" class="btn-primary">
+                    <i class="bi bi-search"></i> Анализировать
+                </button>
             </div>
             <div class="tv-chart-wrapper">
                 <div id="tv-chart-container"></div>
             </div>
-            <div id="analysis-result" class="analysis-card"></div>
-            <div id="decision-result" class="decision-card"></div>
+            <div id="analysis-result" class="analysis-card" style="display:none;"></div>
+            <div id="decision-result" class="decision-card" style="display:none;"></div>
         </div>
     </div>
 
+    {# ── Trade proposals ───────────────────────────────────────── #}
     <div class="section" data-page="dashboard">
-        <h2>Предложения по сделкам</h2>
+        <h2><i class="bi bi-lightning-charge-fill"></i> Предложения по сделкам</h2>
         <p class="section-desc">Анализ топ-монет, отсортировано по вероятности удачности. Клик по строке — скорректировать сумму и открыть сделку с изолированной маржой.</p>
         <div class="proposals-toolbar">
-            <button id="load-proposals-btn" class="btn-primary">Анализировать рынок</button>
+            <button id="load-proposals-btn" class="btn-primary">
+                <i class="bi bi-cpu"></i> Анализировать рынок
+            </button>
         </div>
         <div class="table-container">
             <table id="proposals-table">
@@ -99,10 +113,11 @@
         </div>
     </div>
 
+    {# ── Open order modal ──────────────────────────────────────── #}
     <div id="open-order-modal" class="modal" style="display: none;">
         <div class="modal-backdrop"></div>
         <div class="modal-content">
-            <h3>Открыть сделку (изолированная маржа)</h3>
+            <h3><i class="bi bi-plus-circle" style="color:var(--brand-orange)"></i> Открыть сделку (изолированная маржа)</h3>
             <input type="hidden" id="modal-symbol" />
             <input type="hidden" id="modal-side" />
             <div class="form-group">
@@ -122,27 +137,32 @@
                 <input type="number" min="1" id="modal-leverage" value="1" />
             </div>
             <div class="modal-actions">
-                <button id="modal-submit-btn" class="btn-primary">Открыть сделку</button>
-                <button id="modal-cancel-btn" class="btn-secondary">Отмена</button>
+                <button id="modal-submit-btn" class="btn-primary">
+                    <i class="bi bi-check2-circle"></i> Открыть сделку
+                </button>
+                <button id="modal-cancel-btn" class="btn-secondary">
+                    <i class="bi bi-x"></i> Отмена
+                </button>
             </div>
             <div id="modal-message" class="message"></div>
         </div>
     </div>
 
+    {# ── Top markets table ─────────────────────────────────────── #}
     <div class="section" data-page="dashboard">
-        <h2>Топ монет (24ч оборот)</h2>
+        <h2><i class="bi bi-layers"></i> Топ монет (24ч оборот)</h2>
         <p class="section-desc">Клик по строке — выбрать монету для графика и анализа выше.</p>
         <div class="table-container">
             <table id="top-markets-table">
                 <thead>
                     <tr>
                         <th>Символ</th>
-                        <th>Цена</th>
-                        <th>24ч %</th>
-                        <th>24ч объём</th>
-                        <th>24ч оборот</th>
-                        <th>24ч High</th>
-                        <th>24ч Low</th>
+                        <th class="num">Цена</th>
+                        <th class="num">24ч %</th>
+                        <th class="num">24ч объём</th>
+                        <th class="num">24ч оборот</th>
+                        <th class="num">High</th>
+                        <th class="num">Low</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -152,15 +172,17 @@
         </div>
     </div>
 
+    {# ── Risk guard status ─────────────────────────────────────── #}
     <div class="section" data-page="bot">
-        <h2>Статус защиты бота</h2>
+        <h2><i class="bi bi-shield-fill-check"></i> Статус защиты бота</h2>
         <div id="risk-status-panel" class="risk-panel">
             <span class="loading">Загрузка...</span>
         </div>
     </div>
 
+    {# ── Pending confirmations (strict mode) ───────────────────── #}
     <div class="section" data-page="bot" id="pending-section" style="display:none;">
-        <h2>⚠ Ожидают подтверждения (строгий режим)</h2>
+        <h2><i class="bi bi-exclamation-triangle-fill" style="color:var(--warning)"></i> Ожидают подтверждения (строгий режим)</h2>
         <p class="section-desc">Эти действия предложены ботом, но требуют вашего подтверждения перед исполнением.</p>
         <div class="table-container">
             <table id="pending-table">
@@ -176,21 +198,22 @@
         </div>
     </div>
 
+    {# ── Open positions ────────────────────────────────────────── #}
     <div class="section" data-page="bot">
-        <h2>Текущие позиции</h2>
+        <h2><i class="bi bi-collection-fill"></i> Текущие позиции</h2>
         <div class="table-container">
             <table id="positions-table">
                 <thead>
                     <tr>
                         <th>Символ</th>
                         <th>Сторона</th>
-                        <th>Размер</th>
-                        <th>Вход USDT</th>
-                        <th>Плечо</th>
-                        <th>Цена входа</th>
-                        <th>Текущая цена</th>
-                        <th>Ликвидация</th>
-                        <th>Нереализованный PnL</th>
+                        <th class="num">Размер</th>
+                        <th class="num">Вход USDT</th>
+                        <th class="num">Плечо</th>
+                        <th class="num">Цена входа</th>
+                        <th class="num">Текущая</th>
+                        <th class="num">Ликвидация</th>
+                        <th class="num">PnL</th>
                         <th>Открыто</th>
                         <th>Почему?</th>
                         <th>Бот</th>
@@ -204,8 +227,9 @@
         </div>
     </div>
 
+    {# ── Bot metrics ───────────────────────────────────────────── #}
     <div class="section" data-page="bot">
-        <h2>Метрики бота</h2>
+        <h2><i class="bi bi-activity"></i> Метрики бота</h2>
         <p class="section-desc">Статистика решений LLM: предложено / исполнено / пропущено правилами.</p>
         <div id="bot-metrics-panel" class="metrics-panel">
             <div class="metrics-summary" id="metrics-summary-cards">
@@ -216,8 +240,9 @@
         </div>
     </div>
 
+    {# ── LLM decisions trace ───────────────────────────────────── #}
     <div class="section" data-page="bot">
-        <h2>Последние решения LLM (трасса)</h2>
+        <h2><i class="bi bi-list-check"></i> Последние решения LLM (трасса)</h2>
         <p class="section-desc">Полная история решений с причинами, уверенностью и результатами правил.</p>
         <div class="table-container">
             <table id="decisions-table">
@@ -226,11 +251,11 @@
                         <th>Время</th>
                         <th>Символ</th>
                         <th>Действие</th>
-                        <th>%</th>
+                        <th class="num">%</th>
                         <th>Риск</th>
                         <th>Причина LLM</th>
                         <th>Правило</th>
-                        <th>PnL est.</th>
+                        <th class="num">PnL est.</th>
                         <th>v</th>
                     </tr>
                 </thead>
@@ -241,8 +266,9 @@
         </div>
     </div>
 
+    {# ── Open orders ───────────────────────────────────────────── #}
     <div class="section" data-page="bot">
-        <h2>Открытые ордера</h2>
+        <h2><i class="bi bi-card-checklist"></i> Открытые ордера</h2>
         <div class="table-container">
             <table id="orders-table">
                 <thead>
@@ -250,9 +276,9 @@
                         <th>Символ</th>
                         <th>Сторона</th>
                         <th>Тип</th>
-                        <th>Цена</th>
-                        <th>Количество</th>
-                        <th>Исполнено</th>
+                        <th class="num">Цена</th>
+                        <th class="num">Количество</th>
+                        <th class="num">Исполнено</th>
                         <th>Статус</th>
                         <th>Создан</th>
                     </tr>
@@ -264,17 +290,18 @@
         </div>
     </div>
 
+    {# ── Trades history ────────────────────────────────────────── #}
     <div class="section" data-page="history">
-        <h2>Последние сделки</h2>
+        <h2><i class="bi bi-arrow-left-right"></i> Последние сделки</h2>
         <div class="table-container">
             <table id="trades-table">
                 <thead>
                     <tr>
                         <th>Символ</th>
                         <th>Сторона</th>
-                        <th>Цена</th>
-                        <th>Количество</th>
-                        <th>Прибыль</th>
+                        <th class="num">Цена</th>
+                        <th class="num">Количество</th>
+                        <th class="num">Прибыль</th>
                         <th>Статус</th>
                         <th>Время</th>
                     </tr>
@@ -286,8 +313,9 @@
         </div>
     </div>
 
+    {# ── Bot event history ─────────────────────────────────────── #}
     <div class="section" data-page="history">
-        <h2>История бота (последние решения)</h2>
+        <h2><i class="bi bi-journal-text"></i> История бота (последние решения)</h2>
         <p class="section-desc">Здесь отображаются недавние решения и действия бота за последнюю неделю.</p>
         <div class="table-container">
             <table id="bot-history-table">

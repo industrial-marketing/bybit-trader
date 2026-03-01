@@ -2,91 +2,96 @@
 
 namespace App\Service;
 
+/**
+ * Persistent bot event log stored in var/bot_history.json.
+ *
+ * All writes go through AtomicFileStorage::update() which uses flock(LOCK_EX)
+ * + temp-rename to prevent JSON corruption on concurrent cron / manual runs.
+ * Read-only methods go through AtomicFileStorage::read() with LOCK_SH.
+ */
 class BotHistoryService
 {
     private string $filePath;
-    private array $events = [];
 
     public function __construct()
     {
         $this->filePath = __DIR__ . '/../../var/bot_history.json';
-        if (file_exists($this->filePath)) {
-            $content = file_get_contents($this->filePath);
-            $this->events = json_decode($content, true) ?? [];
-        }
     }
 
     /**
-     * Записать событие в историю бота.
+     * Append an event to the history (atomic read-modify-write under flock).
      */
     public function log(string $type, array $payload): void
     {
         $event = array_merge([
-            'id' => uniqid($type . '_', true),
-            'type' => $type,
+            'id'        => uniqid($type . '_', true),
+            'type'      => $type,
             'timestamp' => date('c'),
         ], $payload);
 
-        $this->events[] = $event;
+        AtomicFileStorage::update($this->filePath, function (array $events) use ($event): array {
+            $events[] = $event;
 
-        // Обрезаем историю: не старше 14 дней и не более 1000 записей
-        $since = new \DateTimeImmutable('-14 days');
-        $filtered = [];
-        foreach ($this->events as $e) {
-            if (empty($e['timestamp'])) {
-                continue;
+            // Trim: keep last 14 days and at most 1 000 entries
+            $since    = new \DateTimeImmutable('-14 days');
+            $filtered = [];
+            foreach ($events as $e) {
+                if (empty($e['timestamp'])) {
+                    continue;
+                }
+                try {
+                    $ts = new \DateTimeImmutable($e['timestamp']);
+                } catch (\Exception) {
+                    continue;
+                }
+                if ($ts >= $since) {
+                    $filtered[] = $e;
+                }
             }
-            try {
-                $ts = new \DateTimeImmutable($e['timestamp']);
-            } catch (\Exception) {
-                continue;
+            if (count($filtered) > 1000) {
+                $filtered = array_slice($filtered, -1000);
             }
-            if ($ts >= $since) {
-                $filtered[] = $e;
-            }
-        }
-        if (count($filtered) > 1000) {
-            $filtered = array_slice($filtered, -1000);
-        }
-        $this->events = $filtered;
 
-        $this->save();
+            return $filtered;
+        });
     }
 
     /**
-     * События за последние N дней (по умолчанию 7).
+     * Return events from the last $days days (shared-lock read).
      */
     public function getRecentEvents(int $days = 7): array
     {
-        $since = new \DateTimeImmutable("-{$days} days");
-        return array_values(array_filter($this->events, function (array $e) use ($since): bool {
+        $events = AtomicFileStorage::read($this->filePath);
+        $since  = new \DateTimeImmutable("-{$days} days");
+
+        return array_values(array_filter($events, function (array $e) use ($since): bool {
             if (empty($e['timestamp'])) {
                 return false;
             }
             try {
-                $ts = new \DateTimeImmutable($e['timestamp']);
+                return new \DateTimeImmutable($e['timestamp']) >= $since;
             } catch (\Exception) {
                 return false;
             }
-            return $ts >= $since;
         }));
     }
 
     /**
-     * Последнее событие указанного типа.
+     * Return the most recent event of the given type, or null.
      */
     public function getLastEventOfType(string $type): ?array
     {
-        for ($i = count($this->events) - 1; $i >= 0; $i--) {
-            if (($this->events[$i]['type'] ?? '') === $type) {
-                return $this->events[$i];
+        $events = AtomicFileStorage::read($this->filePath);
+        for ($i = count($events) - 1; $i >= 0; $i--) {
+            if (($events[$i]['type'] ?? '') === $type) {
+                return $events[$i];
             }
         }
         return null;
     }
 
     /**
-     * Краткая сводка для промптов ИИ: по символам и исходам.
+     * Short performance summary for LLM prompts (last 7 days, top-10 symbols).
      */
     public function getWeeklySummaryText(): string
     {
@@ -97,49 +102,29 @@ class BotHistoryService
 
         $perSymbol = [];
         foreach ($events as $e) {
-            $sym = $e['symbol'] ?? 'UNKNOWN';
-            $outcome = $e['outcome'] ?? null; // 'win' | 'loss' | 'error' | null
-            $perSymbol[$sym] ??= [
-                'total' => 0,
-                'wins' => 0,
-                'losses' => 0,
-                'errors' => 0,
-            ];
+            $sym     = $e['symbol'] ?? 'UNKNOWN';
+            $outcome = $e['outcome'] ?? null;
+            $perSymbol[$sym] ??= ['total' => 0, 'wins' => 0, 'losses' => 0, 'errors' => 0];
             $perSymbol[$sym]['total']++;
-            if ($outcome === 'win') {
-                $perSymbol[$sym]['wins']++;
-            } elseif ($outcome === 'loss') {
-                $perSymbol[$sym]['losses']++;
-            } elseif ($outcome === 'error') {
-                $perSymbol[$sym]['errors']++;
-            }
+            match ($outcome) {
+                'win'   => $perSymbol[$sym]['wins']++,
+                'loss'  => $perSymbol[$sym]['losses']++,
+                'error' => $perSymbol[$sym]['errors']++,
+                default => null,
+            };
         }
 
-        uasort($perSymbol, fn($a, $b) => ($b['total'] <=> $a['total']));
+        uasort($perSymbol, fn($a, $b) => $b['total'] <=> $a['total']);
         $top = array_slice($perSymbol, 0, 10, true);
 
-        $lines = ["Recent bot performance over the last 7 days:"];
-        foreach ($top as $sym => $stats) {
+        $lines = ['Recent bot performance over the last 7 days:'];
+        foreach ($top as $sym => $s) {
             $lines[] = sprintf(
-                "%s: total=%d, wins=%d, losses=%d, errors=%d",
-                $sym,
-                $stats['total'],
-                $stats['wins'],
-                $stats['losses'],
-                $stats['errors']
+                '%s: total=%d, wins=%d, losses=%d, errors=%d',
+                $sym, $s['total'], $s['wins'], $s['losses'], $s['errors']
             );
         }
 
         return implode("\n", $lines);
     }
-
-    private function save(): void
-    {
-        $dir = dirname($this->filePath);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-        file_put_contents($this->filePath, json_encode($this->events, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-    }
 }
-

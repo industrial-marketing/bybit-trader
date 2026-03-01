@@ -3,13 +3,15 @@
 namespace App\Service;
 
 /**
- * Хранит действия, ожидающие подтверждения пользователя (двухфазное исполнение).
+ * Stores actions that are awaiting user confirmation (two-phase execution).
  *
- * Используется в строгом режиме (bot_strict_mode=true) для опасных действий:
- * CLOSE_FULL и AVERAGE_IN_ONCE.
+ * Used in strict mode (bot_strict_mode=true) for dangerous actions:
+ * CLOSE_FULL and AVERAGE_IN_ONCE.
  *
- * Файл: var/pending_actions.json
- * TTL записи: 60 минут — после этого запись считается устаревшей и удаляется.
+ * File: var/pending_actions.json
+ * TTL:  60 minutes — entries older than this are silently discarded.
+ *
+ * All mutations are atomic (flock + temp-rename via AtomicFileStorage::update()).
  */
 class PendingActionsService
 {
@@ -21,54 +23,61 @@ class PendingActionsService
         $this->file = __DIR__ . '/../../var/pending_actions.json';
     }
 
+    /** Return all non-expired pending actions. */
     public function getAll(): array
     {
-        $this->clearExpired();
-        return $this->load();
+        return AtomicFileStorage::update($this->file, function (array $pending): array {
+            return $this->filterExpired($pending);
+        });
     }
 
+    /** Add a new pending action and return its ID. */
     public function add(array $action): string
     {
-        $id      = uniqid('pa_', true);
-        $pending = $this->load();
+        $id = uniqid('pa_', true);
 
-        $pending[] = array_merge($action, [
-            'id'         => $id,
-            'created_at' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
-            'status'     => 'pending',
-        ]);
+        AtomicFileStorage::update($this->file, function (array $pending) use ($action, $id): array {
+            $pending = $this->filterExpired($pending);
+            $pending[] = array_merge($action, [
+                'id'         => $id,
+                'created_at' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+                'status'     => 'pending',
+            ]);
+            return array_values($pending);
+        });
 
-        $this->save($pending);
         return $id;
     }
 
     /**
-     * Подтверждение или отклонение действия.
-     * Возвращает запись, если найдена, null — если уже нет.
+     * Confirm or reject a pending action by ID.
+     * Removes the entry from the file regardless of the decision.
+     * Returns the entry that was found (or null if not found / already expired).
      */
     public function resolve(string $id, bool $confirm): ?array
     {
-        $pending = $this->load();
-        $found   = null;
+        $found = null;
 
-        $filtered = [];
-        foreach ($pending as $item) {
-            if (($item['id'] ?? '') === $id) {
-                $found = $item;
-                // Не сохраняем — удаляем из списка независимо от confirm/reject
-            } else {
-                $filtered[] = $item;
+        AtomicFileStorage::update($this->file, function (array $pending) use ($id, &$found): array {
+            $filtered = [];
+            foreach ($pending as $item) {
+                if (($item['id'] ?? '') === $id) {
+                    $found = $item;
+                } else {
+                    $filtered[] = $item;
+                }
             }
-        }
+            return array_values($filtered);
+        });
 
-        $this->save($filtered);
         return $found;
     }
 
-    /** Есть ли уже ожидающее действие для данного символа+action? */
+    /** Check whether a pending action for the given symbol + action already exists. */
     public function hasPending(string $symbol, string $action): bool
     {
-        foreach ($this->load() as $item) {
+        $pending = AtomicFileStorage::read($this->file);
+        foreach ($pending as $item) {
             if (($item['symbol'] ?? '') === $symbol && ($item['action'] ?? '') === $action) {
                 return true;
             }
@@ -76,40 +85,20 @@ class PendingActionsService
         return false;
     }
 
-    private function clearExpired(): void
-    {
-        $pending = $this->load();
-        $now     = new \DateTimeImmutable();
-        $ttl     = self::TTL_MINUTES * 60;
+    // ── Private helpers ────────────────────────────────────────────
 
-        $filtered = array_filter($pending, function (array $item) use ($now, $ttl): bool {
+    private function filterExpired(array $pending): array
+    {
+        $now = new \DateTimeImmutable();
+        $ttl = self::TTL_MINUTES * 60;
+
+        return array_values(array_filter($pending, function (array $item) use ($now, $ttl): bool {
             try {
                 $created = new \DateTimeImmutable($item['created_at'] ?? '');
                 return ($now->getTimestamp() - $created->getTimestamp()) < $ttl;
             } catch (\Exception) {
                 return false;
             }
-        });
-
-        if (count($filtered) !== count($pending)) {
-            $this->save(array_values($filtered));
-        }
-    }
-
-    private function load(): array
-    {
-        if (!file_exists($this->file)) {
-            return [];
-        }
-        return json_decode(file_get_contents($this->file), true) ?? [];
-    }
-
-    private function save(array $data): void
-    {
-        $dir = dirname($this->file);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-        file_put_contents($this->file, json_encode(array_values($data), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        }));
     }
 }

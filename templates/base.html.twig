@@ -4,6 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Bybit Trader{% endblock %}</title>
+
+    {# Favicons — place generated files in public/assets/brand/icons/ #}
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/brand/icons/apple-touch-icon.png">
+    <link rel="shortcut icon" href="/assets/brand/bybit_trader_icon.png">
+
+    {# Bootstrap Icons CDN #}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="/assets/lib/jquery.min.js"></script>
     {% block scripts %}{% endblock %}
@@ -11,17 +21,50 @@
 <body>
     <nav class="navbar">
         <div class="container">
-            <h1>Bybit Trader</h1>
+            <a class="navbar-brand" href="/">
+                <img
+                    src="/assets/brand/bybit_trader_logo.png"
+                    alt="Bybit Trader"
+                    class="brand-logo"
+                    onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+                >
+                <span class="brand-logo-fallback" style="display:none;">BYBIT <span>TRADER</span></span>
+            </a>
             <ul>
-                <li><a href="/?page=dashboard">Дашборд</a></li>
-                <li><a href="/?page=bot">Бот</a></li>
-                <li><a href="/?page=history">История</a></li>
-                <li><a href="/settings">Настройки</a></li>
-                <li><a href="/logout" style="color:#8b949e">Выйти</a></li>
+                <li>
+                    <a href="/?page=dashboard" title="Дашборд">
+                        <i class="bi bi-bar-chart-fill"></i>
+                        <span class="nav-label">Дашборд</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/?page=bot" title="Бот">
+                        <i class="bi bi-robot"></i>
+                        <span class="nav-label">Бот</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/?page=history" title="История">
+                        <i class="bi bi-clock-history"></i>
+                        <span class="nav-label">История</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/settings" title="Настройки">
+                        <i class="bi bi-gear-fill"></i>
+                        <span class="nav-label">Настройки</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/logout" class="nav-logout" title="Выйти">
+                        <i class="bi bi-box-arrow-right"></i>
+                        <span class="nav-label">Выйти</span>
+                    </a>
+                </li>
             </ul>
         </div>
     </nav>
-    <div class="container">
+    <div class="container" style="padding-top: 8px; padding-bottom: 40px;">
         {% block content %}{% endblock %}
     </div>
 </body>

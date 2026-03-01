@@ -2,22 +2,22 @@
 
 namespace App\Service;
 
+/**
+ * Manages user-imposed locks on open positions.
+ *
+ * Writes are atomic (flock + temp-rename via AtomicFileStorage::update()).
+ * The in-memory cache is refreshed after every write so that callers within
+ * the same request see consistent state without re-reading the file.
+ */
 class PositionLockService
 {
     private string $filePath;
-    /** @var array<string,bool> */
-    private array $locks = [];
+    /** @var array<string,bool> In-memory read cache, populated lazily and refreshed on write. */
+    private ?array $cache = null;
 
     public function __construct()
     {
         $this->filePath = __DIR__ . '/../../var/position_locks.json';
-        if (file_exists($this->filePath)) {
-            $content = file_get_contents($this->filePath);
-            $data = json_decode($content, true);
-            if (is_array($data)) {
-                $this->locks = $data;
-            }
-        }
     }
 
     private function key(string $symbol, string $side): string
@@ -27,35 +27,40 @@ class PositionLockService
 
     public function isLocked(string $symbol, string $side): bool
     {
-        return (bool)($this->locks[$this->key($symbol, $side)] ?? false);
+        return (bool)($this->all()[$this->key($symbol, $side)] ?? false);
     }
 
     public function setLock(string $symbol, string $side, bool $locked): void
     {
         $k = $this->key($symbol, $side);
-        if ($locked) {
-            $this->locks[$k] = true;
-        } else {
-            unset($this->locks[$k]);
-        }
-        $this->save();
+
+        $result = AtomicFileStorage::update($this->filePath, function (array $locks) use ($k, $locked): array {
+            if ($locked) {
+                $locks[$k] = true;
+            } else {
+                unset($locks[$k]);
+            }
+            return $locks;
+        });
+
+        // Refresh in-memory cache to reflect the written state
+        $this->cache = $result;
     }
 
-    /**
-     * @return array<string,bool>
-     */
+    /** @return array<string,bool> */
     public function getLocks(): array
     {
-        return $this->locks;
+        // Always return a fresh view for external callers
+        $this->cache = null;
+        return $this->all();
     }
 
-    private function save(): void
+    /** @return array<string,bool> */
+    private function all(): array
     {
-        $dir = dirname($this->filePath);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+        if ($this->cache === null) {
+            $this->cache = AtomicFileStorage::read($this->filePath);
         }
-        file_put_contents($this->filePath, json_encode($this->locks, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        return $this->cache;
     }
 }
-
