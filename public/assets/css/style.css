@@ -60,48 +60,48 @@ a { color: inherit; text-decoration: none; }
 
 /* ── 4. Navbar ────────────────────────────────────────────────── */
 .navbar {
-    background: var(--brand-navy-2);
-    border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, #0B1220 0%, #1B2A41 100%);
+    border-bottom: 3px solid var(--brand-orange);
     padding: 0;
     margin-bottom: 28px;
     position: sticky;
     top: 0;
     z-index: 100;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
 }
 
 .navbar .container {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0 20px;
-    height: 64px;
+    padding: 0 24px;
+    height: 76px;
 }
 
 .navbar-brand {
     display: flex;
     align-items: center;
-    gap: 8px;
     flex-shrink: 0;
+    background: rgba(255,255,255,0.97);
+    border-radius: 10px;
+    padding: 6px 14px;
+    transition: transform var(--transition), box-shadow var(--transition);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+    text-decoration: none;
+}
+
+.navbar-brand:hover {
+    transform: scale(1.03);
+    box-shadow: 0 4px 20px rgba(245,158,11,0.35);
 }
 
 .brand-logo {
-    height: 40px;
+    height: 56px;
     width: auto;
     display: block;
-    /* Invert colours for dark navbar — white → black (hides on dark bg), navy → cream/white */
-    filter: invert(1);
+    /* No filter — white pill container preserves original brand colours */
 }
 
-.brand-logo-fallback {
-    font-size: 17px;
-    font-weight: 700;
-    letter-spacing: -0.3px;
-    color: var(--brand-white);
-}
-
-.brand-logo-fallback span {
-    color: var(--brand-orange);
-}
 
 /* Inverted icon used inline (e.g. small places on dark bg) */
 .brand-icon-img {
@@ -134,21 +134,99 @@ a { color: inherit; text-decoration: none; }
     display: flex;
     align-items: center;
     gap: 6px;
+    position: relative;
+}
+
+.navbar a::after {
+    content: '';
+    position: absolute;
+    bottom: -3px;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: var(--brand-orange);
+    border-radius: 2px;
+    transform: translateX(-50%);
+    transition: width var(--transition);
+}
+
+.navbar a:hover::after,
+.navbar a.active::after {
+    width: 60%;
 }
 
 .navbar a:hover,
 .navbar a.active {
-    background: rgba(255,255,255,0.06);
-    color: var(--text);
+    color: var(--brand-white);
 }
 
 .navbar a.nav-logout {
-    color: rgba(239, 68, 68, 0.7);
+    color: rgba(239, 68, 68, 0.65);
 }
 
 .navbar a.nav-logout:hover {
     color: var(--negative);
-    background: rgba(239, 68, 68, 0.08);
+}
+
+.navbar a.nav-logout::after {
+    background: var(--negative);
+}
+
+/* ── Footer ───────────────────────────────────────────────────── */
+.site-footer {
+    background: var(--brand-navy-2);
+    border-top: 1px solid var(--border);
+    padding: 24px 0;
+    margin-top: 60px;
+}
+
+.site-footer .container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.footer-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.footer-icon {
+    height: 36px;
+    width: auto;
+    /* White pill behind icon so colours stay correct */
+    background: rgba(255,255,255,0.95);
+    border-radius: 8px;
+    padding: 4px;
+}
+
+.footer-text {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.footer-text strong {
+    color: var(--text);
+    font-size: 13px;
+}
+
+.footer-right {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
+}
+
+.footer-right a {
+    color: var(--brand-orange);
+    text-decoration: none;
+}
+
+.footer-right a:hover {
+    text-decoration: underline;
 }
 
 /* ── 5. Typography ────────────────────────────────────────────── */
