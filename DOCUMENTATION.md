@@ -1,6 +1,6 @@
 # Bybit Trader — Документация
 
-> Последнее обновление: 25.02.2026 (rev 5)
+> Последнее обновление: 01.03.2026 (rev 6)
 
 ## Содержание
 
@@ -34,8 +34,8 @@
 - Все решения основаны на анализе LLM (ChatGPT / DeepSeek) с учётом истории цен, истории решений бота и торговых параметров.
 
 **Стек:**
-- Backend: PHP 8.1+, Symfony 6+
-- Frontend: jQuery, Twig-шаблоны
+- Backend: PHP 8.1+, Symfony 6.4
+- Frontend: jQuery, Twig-шаблоны, Bootstrap Icons 1.11
 - Биржа: Bybit API v5 (linear perpetual, category=linear)
 - LLM: OpenAI ChatGPT (primary), DeepSeek (fallback)
 
@@ -44,23 +44,27 @@
 ## 2. Архитектура
 
 ```
-Browser (jQuery)
+Browser (jQuery + Bootstrap Icons)
     │
     ▼
 Symfony Router
     │
-    ├── SecurityController   ──►  security/login.html.twig  (форма входа)
+    ├── SecurityController   ──►  security/login.html.twig
     ├── DashboardController  ──►  dashboard.html.twig
     └── ApiController        ──►  JSON API
             │
-            ├── BybitService        (Bybit API v5, включая /v5/market/kline)
-            ├── ChatGPTService      (LLM: OpenAI / DeepSeek, строгий контракт v3)
-            ├── SettingsService     (var/settings.json)
-            ├── BotHistoryService   (var/bot_history.json)
-            ├── PositionLockService (var/position_locks.json)
-            ├── AlertService        (Telegram / webhook алерты)
-            ├── BotMetricsService   (метрики LLM-решений, трасса "Why")
-            └── LogSanitizer        (редактирование секретов в логах)
+            ├── BybitService          (Bybit API v5, retry, time-sync, instrument cache)
+            ├── ChatGPTService        (LLM: OpenAI / DeepSeek, строгий контракт v3)
+            ├── SettingsService       (var/settings.json)
+            ├── BotHistoryService     (var/bot_history.json, atomic I/O)
+            ├── BotRunService         (var/bot_runs.json, идемпотентность тика)
+            ├── PositionLockService   (var/position_locks.json, atomic I/O)
+            ├── PendingActionsService (var/pending_actions.json, строгий режим)
+            ├── RiskGuardService      (kill-switch, loss limit, exposure, cooldown)
+            ├── AlertService          (Telegram / webhook алерты)
+            ├── BotMetricsService     (метрики LLM-решений, трасса "Why")
+            ├── AtomicFileStorage     (flock + temp-rename, базовый I/O)
+            └── LogSanitizer          (редактирование секретов в логах)
 ```
 
 ---
@@ -75,39 +79,51 @@ bybit_trader/
 │   │   ├── DashboardController.php   ← рендер страниц
 │   │   └── SecurityController.php    ← /login, /logout
 │   └── Service/
+│       ├── AtomicFileStorage.php     ← flock + temp-rename, базовый слой I/O
 │       ├── BybitService.php          ← Bybit API v5 (retry, time-sync, instrument cache)
 │       ├── ChatGPTService.php        ← LLM (OpenAI + DeepSeek, строгий контракт v3)
 │       ├── SettingsService.php       ← настройки (var/settings.json + env override)
-│       ├── BotHistoryService.php     ← история решений бота
-│       ├── PositionLockService.php   ← замки на позиции
+│       ├── BotHistoryService.php     ← история решений бота (atomic)
+│       ├── BotRunService.php         ← идемпотентность тика, timeframe bucket
+│       ├── PositionLockService.php   ← замки на позиции (atomic)
+│       ├── PendingActionsService.php ← действия ожидающие подтверждения (strict mode)
+│       ├── RiskGuardService.php      ← контроль рисков (kill-switch, limits, cooldown)
 │       ├── AlertService.php          ← алерты (Telegram / webhook)
 │       ├── BotMetricsService.php     ← метрики LLM-решений и трасса "Why"
 │       └── LogSanitizer.php          ← редактирование секретов из логов
 ├── templates/
-│   ├── base.html.twig                ← базовый layout, навигация + кнопка Выйти
+│   ├── base.html.twig                ← layout: лого, navbar (Bootstrap Icons), footer
 │   ├── dashboard.html.twig           ← главная страница
 │   ├── settings.html.twig            ← страница настроек
 │   └── security/
-│       └── login.html.twig           ← страница входа (форма логин/пароль)
+│       └── login.html.twig           ← форма входа
+├── public/
+│   ├── assets/
+│   │   ├── brand/
+│   │   │   ├── bybit_trader_logo.png ← горизонтальный логотип (шапка)
+│   │   │   ├── bybit_trader_icon.png ← квадратная иконка (favicon, footer)
+│   │   │   └── icons/               ← favicon-файлы разных размеров
+│   │   ├── js/
+│   │   │   ├── app.js               ← логика дашборда
+│   │   │   └── settings.js          ← логика страницы настроек
+│   │   ├── css/
+│   │   │   └── style.css            ← дизайн-система (CSS variables + компоненты)
+│   │   └── lib/
+│   │       └── jquery.min.js
+│   └── .htaccess                    ← mod_rewrite (Symfony front controller)
 ├── config/
-│   ├── packages/
-│   │   └── security.yaml             ← Symfony Security (form_login, memory provider)
-│   └── routes/
-│       └── web_profiler.yaml         ← маршруты /_wdt и /_profiler для dev
-├── public/assets/
-│   ├── js/
-│   │   ├── app.js                    ← логика дашборда
-│   │   └── settings.js               ← логика страницы настроек
-│   └── css/
-│       └── style.css
+│   ├── packages/security.yaml       ← Symfony Security
+│   └── routes.yaml
 ├── var/
-│   ├── settings.json                 ← конфигурация (торговые параметры, без API-ключей)
-│   ├── bot_history.json              ← история решений бота (14 дней, макс 1000 записей)
-│   ├── position_locks.json           ← заблокированные позиции
-│   ├── bybit_time_offset.json        ← кеш сдвига часов (TTL 5 мин)
-│   └── instrument_cache.json         ← кеш инструментов Bybit (TTL 1 ч)
-├── .env                              ← дефолтные ENV-переменные (коммитится в git)
-├── .env.local                        ← секреты и переопределения (НЕ коммитится)
+│   ├── settings.json                ← конфигурация (без API-ключей)
+│   ├── bot_history.json             ← история событий бота (14 дней, 1000 записей)
+│   ├── bot_runs.json                ← история запусков тика (идемпотентность)
+│   ├── position_locks.json          ← заблокированные позиции
+│   ├── pending_actions.json         ← ожидающие подтверждения (strict mode, TTL 60 мин)
+│   ├── bybit_time_offset.json       ← кеш сдвига часов (TTL 5 мин)
+│   └── instrument_cache.json        ← кеш инструментов Bybit (TTL 1 ч)
+├── .env                             ← дефолтные ENV-переменные (коммитится)
+├── .env.local                       ← секреты и переопределения (НЕ коммитится)
 └── DOCUMENTATION.md
 ```
 
@@ -115,62 +131,79 @@ bybit_trader/
 
 ## 4. Сервисы (Services)
 
+### `AtomicFileStorage`
+
+Базовый слой атомарного I/O для всех JSON-файлов состояния. Устраняет гонки при одновременном запуске cron + ручного тика.
+
+**Механизм:** companion-файл `.lock` + `flock(LOCK_EX/SH)` + запись во временный `.tmp.PID`-файл + атомарный `rename()`.
+
+| Метод | Описание |
+|---|---|
+| `read(path, default)` | Чтение под `LOCK_SH` (разделяемая блокировка) |
+| `write(path, data)` | Запись под `LOCK_EX` через temp-rename |
+| `update(path, callback, default)` | Read-modify-write под `LOCK_EX`. Перечитывает файл внутри блокировки — гарантирует отсутствие потерянных обновлений |
+
+> Все остальные сервисы используют `AtomicFileStorage` вместо прямых `file_put_contents` / `file_get_contents`.
+
+---
+
+### `BotRunService`
+
+Идемпотентный guard для тиков бота. Предотвращает дублирование тика при одновременном запуске cron + ручной кнопки.
+
+**Концепция timeframe bucket:** для таймфрейма 5m текущее время 10:07 даёт bucket `2026-02-25T10:05`. Все запросы в одном окне имеют одинаковый ключ.
+
+**Хранилище:** `var/bot_runs.json` (последние 200 записей).
+
+| Метод | Описание |
+|---|---|
+| `tryStart(timeframeMinutes, staleSec)` | Атомарно резервирует bucket. Возвращает `run_id` (продолжать) или `null` (пропустить) |
+| `finish(runId, status)` | Помечает run как `done` / `error` |
+| `currentBucket(timeframeMinutes)` | Вычисляет текущий bucket-ключ |
+| `getRecentRuns(limit)` | История запусков для диагностики |
+| `isRunning(timeframeMinutes)` | Проверяет активный запуск |
+
+**Stale-detection:** если `running`-запись существует, но `started_at` > 2×timeframe назад — считается аварийным завершением (`crashed`), новый запуск разрешается.
+
+---
+
 ### `BybitService`
 
-Вся коммуникация с Bybit API v5. Содержит многоуровневый слой надёжности:
+Вся коммуникация с Bybit API v5.
 
 **Ключевые методы:**
 
 | Метод | Описание |
 |---|---|
 | `getPositions()` | Список открытых позиций (обогащает `liqPrice`, `stopLoss`, `takeProfit`) |
-| `getTopMarkets(limit, category)` | Топ монет по обороту. Дедупликация: предпочитает `*PERP` над `*USDT`. Фильтрует dated-контракты |
-| `getKlineHistory(symbol, intervalMinutes, limit, maxPricePoints)` | Исторические свечи с Bybit `/v5/market/kline`. Использует канонический `*USDT`-символ |
+| `getTopMarkets(limit, category)` | Топ монет по обороту. Дедупликация: предпочитает `*PERP`. Фильтрует dated-контракты |
+| `getKlineHistory(symbol, intervalMinutes, limit, maxPricePoints)` | Исторические свечи. Использует канонический `*USDT`-символ |
 | `getBalance()` | Баланс кошелька (USDT available + wallet balance) |
-| `getStatistics()` | Статистика: totalTrades, winRate, totalProfit, drawdown. Фоллбэк: `getClosedTrades` → `getTrades` |
-| `placeOrder(symbol, side, positionSizeUSDT, leverage)` | Открытие позиции. Включает: setLeverage, switchIsolated, createOrder. Валидирует qty и leverage по instrumentInfo. Логирует параметры перед отправкой |
-| `closePositionMarket(symbol, side, fraction)` | Закрытие позиции (полное или частичное). Пропускает если qty < minOrderQty |
-| `setBreakevenStopLoss(symbol, side, entryPrice)` | Перенос стопа в безубыток. Пропускает если позиция в убытке |
-| `getOpenOrders(symbol)` | Открытые ордера. Включает `triggerPrice` для условных ордеров |
-| `getTrades(limit)` | История исполненных ордеров |
-| `getClosedTrades(limit)` | История закрытых позиций (P&L) |
-| `testConnection()` | Проверка подключения + показывает сдвиг часов с сервером Bybit |
+| `getStatistics()` | Статистика: totalTrades, winRate, totalProfit, drawdown |
+| `placeOrder(symbol, side, positionSizeUSDT, leverage)` | Открытие позиции: setLeverage → switchIsolated → createOrder. Логирует параметры перед отправкой |
+| `closePositionMarket(symbol, side, fraction)` | Закрытие (полное или частичное). Пропускает если qty < minOrderQty |
+| `setBreakevenStopLoss(symbol, side, entryPrice)` | Перенос стопа в безубыток |
+| `getOpenOrders(symbol)` | Открытые ордера |
+| `getTrades(limit)` | История исполнений |
+| `testConnection()` | Проверка + показывает сдвиг часов с Bybit |
 
 **HTTP-слой надёжности (`requestWithRetry`):**
-- **Ретраи с экспоненциальным backoff** (1s → 2s → 4s, до 3 попыток) на сетевые ошибки и HTTP 5xx.
-- **Rate-limit**: HTTP 429 ждёт `Retry-After` (заголовок), Bybit retCode `10006` — ждёт и повторяет.
+- Ретраи с backoff (1s → 2s → 4s, 3 попытки) на сетевые ошибки и HTTP 5xx
+- HTTP 429: ждёт `Retry-After`, затем повторяет
+- retCode `10006` (rate-limit Bybit): backoff + повтор
+- retCode `10002` (timestamp): инвалидирует кеш offset, повтор
 
-**Синхронизация времени (`getServerTimeOffset`):**
-- Вызывает `GET /v5/market/time`, вычисляет сдвиг `serverTime − localTime` в миллисекундах.
-- Кеш в `var/bybit_time_offset.json`, TTL 5 минут; инвалидируется при timestamp-ошибках.
-- Используется вместо простого `time() * 1000` при формировании подписи → устраняет ошибку `invalid request, please check your server timestamp`.
-
-**Кеш инструментов (`getInstrumentInfo`):**
-- Двухуровневый: in-memory (per request) + дисковый `var/instrument_cache.json`, TTL 1 час.
-- Принудительное обновление (`forceRefresh=true`) при qty-ошибках Bybit (retCode 110017, 110009, 170036, 170037, 110043).
-
-**Канонический символ (`toCanonicalSymbol`):**
-- `BTCPERP → BTCUSDT`, `ETHPERP → ETHUSDT` и т.д.
-- Используется в `getMarketData()` и `getKlineHistory()` — гарантирует, что рыночные данные запрашиваются по стандартному `*USDT`-тикеру.
-- Позиции и ордера открываются по исходному символу (из `getTopMarkets`).
-
-**Pre-order log (без секретов):**
-Перед каждым `placeOrder` в лог пишется: symbol, side, requestedUSDT, price, rawQty, qty, leverage, minQty, maxQty, step, levRange.
-
-**Аутентификация:**
-- HMAC-SHA256, `recvWindow=20000`, timestamp скорректирован на server offset.
-- POST: подпись по JSON-body строке; GET: по строке параметров.
-
-**Изолированная маржа:**
-Каждый вызов `placeOrder` устанавливает изолированную маржу (`tradeMode=1`) для конкретной позиции.
+**Кеши используют `AtomicFileStorage`:**
+- `var/bybit_time_offset.json` — TTL 5 мин
+- `var/instrument_cache.json` — TTL 1 ч + in-memory per request
 
 ---
 
 ### `ChatGPTService`
 
-Управление LLM-запросами. Поддерживает OpenAI (primary) и DeepSeek (fallback).
+Управление LLM-запросами. OpenAI (primary), DeepSeek (fallback).
 
-**Константа:** `MANAGE_PROMPT_VERSION = 'manage_v3'` — записывается в каждое событие бота.
+**`MANAGE_PROMPT_VERSION = 'manage_v3'`** — записывается в каждое событие бота.
 
 **Строгий контракт ответа (manage_v3):**
 
@@ -185,98 +218,102 @@ bybit_trader/
   "checks": { "pnl_positive": true, "trend": "bearish", "averaging_allowed": false }
 }
 ```
-- Обязательные поля: `symbol`, `action`, `confidence`, `reason`, `risk`
-- При невалидном JSON или отсутствии полей → `DO_NOTHING` + `llm_invalid_response` в историю + алерт
 
-**Ключевые методы:**
+- Обязательные поля: `symbol`, `action`, `confidence`, `reason`, `risk`
+- При невалидном JSON или отсутствии обязательных полей → `DO_NOTHING` + `llm_invalid_response` в историю + алерт через `AlertService`
 
 | Метод | Описание |
 |---|---|
-| `requestLLMRaw(...)` | Возвращает `{content, provider, error}` — фиксирует провайдера и ошибку |
+| `requestLLMRaw(...)` | Возвращает `{content, provider, error}` |
 | `getProposals(bybitService)` | Анализирует топ-25 монет, возвращает предложения (confidence ≥ 60) |
-| `manageOpenPositions(bybitService, positions)` | Решения по открытым позициям. Строгая валидация схемы |
-| `analyzeMarket(symbol, marketData)` | Анализ отдельной монеты, сигнал BUY/SELL/HOLD |
-| `testConnection()` | Проверка LLM: возвращает `ok`, `error`, `raw` |
+| `manageOpenPositions(bybitService, positions)` | Решения по позициям, строгая валидация |
+| `analyzeMarket(symbol, marketData)` | Анализ монеты, сигнал BUY/SELL/HOLD |
+| `testConnection()` | Health-check LLM |
 
 ---
 
 ### `SettingsService`
 
-Хранит все настройки в `var/settings.json`. **API-ключи берутся приоритетно из переменных окружения** (`.env.local`), в `settings.json` они не сохраняются.
+Хранит все настройки в `var/settings.json`. **API-ключи берутся приоритетно из `.env.local`** и никогда не сохраняются в JSON.
 
-**Структура настроек:**
-
-```json
-{
-  "bybit": {
-    "api_key": "",
-    "api_secret": "",
-    "testnet": true,
-    "base_url": "https://api-testnet.bybit.com"
-  },
-  "chatgpt": {
-    "api_key": "",
-    "model": "gpt-4",
-    "enabled": false
-  },
-  "deepseek": {
-    "api_key": "",
-    "model": "deepseek-chat",
-    "enabled": false
-  },
-  "trading": {
-    "max_position_usdt": 100.0,
-    "min_leverage": 1,
-    "max_leverage": 5,
-    "aggressiveness": "balanced",
-    "max_managed_positions": 10,
-    "auto_open_min_positions": 5,
-    "auto_open_enabled": false,
-    "bot_timeframe": 5,
-    "bot_history_candles": 60
-  }
-}
-```
+**Секции настроек:** `bybit`, `chatgpt`, `deepseek`, `trading`, `alerts` (см. раздел 8).
 
 ---
 
 ### `BotHistoryService`
 
-Хранит историю событий бота в `var/bot_history.json`.
+История событий бота в `var/bot_history.json`. Все записи атомарны через `AtomicFileStorage::update()`.
 
 **Типы событий:**
 
 | Тип | Описание |
 |---|---|
-| `bot_tick` | Факт запуска тика бота |
+| `bot_tick` | Факт выполнения тика (содержит `run_id`) |
+| `llm_failure` | LLM вернул пустые решения при наличии позиций |
+| `llm_invalid_response` | Невалидный JSON или нарушение контракта LLM |
 | `manual_open` | Ручное открытие пользователем |
 | `auto_open` | Автооткрытие ботом |
 | `close_full` | Полное закрытие ботом |
 | `close_partial` | Частичное закрытие ботом |
-| `close_partial_skip` | Пропуск частичного закрытия (объём слишком мал) |
+| `close_partial_skip` | Пропуск (объём слишком мал) |
 | `move_sl_to_be` | Перенос стопа в безубыток |
-| `move_sl_to_be_skip` | Пропуск переноса стопа (позиция в убытке) |
+| `move_sl_to_be_skip` | Пропуск переноса (позиция в убытке) |
 | `average_in` | Усреднение позиции |
-| `manual_close_full` | Ручное полное закрытие пользователем |
+| `manual_close_full` | Ручное закрытие пользователем |
 | `position_lock` | Установка/снятие замка |
 
-**Ограничения:** 14 дней, максимум 1000 записей. Метод `getWeeklySummaryText()` возвращает сводку по топ-10 символам за 7 дней.
+**Ограничения:** 14 дней, максимум 1000 записей.
+
+---
+
+### `RiskGuardService`
+
+Централизованный контроль рисков. Все проверки независимы от LLM.
+
+| Метод | Описание |
+|---|---|
+| `isTradingEnabled()` | Kill-switch: `trading_enabled` из настроек |
+| `checkDailyLossLimit()` | Ежедневный лимит потерь (USDT). Суммирует realized PnL за сегодня |
+| `checkMaxExposure(positions)` | Максимальный суммарный риск (маржа). Считает `size × price / leverage` |
+| `isActionAllowed(symbol, recentEvents)` | Cooldown между действиями по символу (минуты) |
+| `isStrictMode()` | Строгий режим: опасные действия требуют подтверждения |
+| `isDangerousAction(action)` | `CLOSE_FULL` и `AVERAGE_IN_ONCE` → опасные |
+| `getRiskStatus(positions)` | Сводный статус для UI (все флаги + сообщения) |
+
+---
+
+### `PendingActionsService`
+
+Двухфазное исполнение: опасные действия бота ждут подтверждения пользователя. Активно только при `bot_strict_mode=true`.
+
+**Хранилище:** `var/pending_actions.json`, TTL 60 минут. Все операции атомарны через `AtomicFileStorage::update()`.
+
+| Метод | Описание |
+|---|---|
+| `getAll()` | Все не-просроченные записи |
+| `add(action)` | Добавить ожидающее действие, вернуть `id` |
+| `resolve(id, confirm)` | Подтвердить или отклонить, вернуть запись |
+| `hasPending(symbol, action)` | Проверить наличие дублей |
 
 ---
 
 ### `PositionLockService`
 
-Управляет "замками" на позиции в `var/position_locks.json`. Заблокированные позиции бот не трогает.
+Замки на позиции в `var/position_locks.json`. Заблокированные позиции бот не трогает.
 
-**Ключ записи:** `"SYMBOL|Side"` (например, `"BTCUSDT|Buy"`).
+**Ключ:** `"SYMBOL|Side"` (например, `"BTCUSDT|Buy"`). Мутации атомарны через `AtomicFileStorage::update()`. In-memory кеш обновляется после каждой записи.
 
 ---
 
 ### `AlertService`
 
-Отправляет уведомления в Telegram и/или на generic webhook (Slack, Discord и т.д.).
+Уведомления в Telegram и/или generic webhook (Slack, Discord и т.д.).
 
-**Настройки** (`settings['alerts']`): `telegram_bot_token`, `telegram_chat_id`, `webhook_url`, флаги `on_llm_failure`, `on_invalid_response`, `on_risk_limit`, `on_bybit_error`, `on_repeated_failures`, `repeated_failure_threshold`.
+**Настройки** (`settings['alerts']`):
+- `telegram_bot_token`, `telegram_chat_id`
+- `webhook_url`
+- Флаги: `on_llm_failure`, `on_invalid_response`, `on_risk_limit`, `on_bybit_error`, `on_repeated_failures`
+- `repeated_failure_threshold` — порог повторяющихся ошибок подряд
 
 **Методы:** `alertLLMFailure()`, `alertInvalidResponse()`, `alertRiskLimit()`, `alertBybitError()`, `alertRepeatedFailures()`, `send(level, message, context)`.
 
@@ -289,7 +326,7 @@ bybit_trader/
 **`getMetrics(days=30)`** возвращает:
 - `tick_count`, `llm_failures`, `invalid_responses`
 - `proposed` / `executed` / `skipped` / `failed` / `execution_rate_pct`
-- `by_action` — разбивка по типам действий с `wins`, `losses`, `win_rate`, `total_pnl`
+- `by_action` — разбивка по типам с `wins`, `losses`, `win_rate`, `total_pnl`
 - `skip_reasons` — частота каждой причины пропуска
 
 **`getRecentDecisions(limit=100)`** — последние события с полным trace-данными для UI.
@@ -300,72 +337,89 @@ bybit_trader/
 
 ### `LogSanitizer`
 
-Статический хелпер для безопасного логирования. Автоматически редактирует API-ключи и токены перед записью в лог.
-
-```php
-LogSanitizer::log('Prefix', $message, $settingsService);
-// В логе: "sk-proj-AbCd****[REDACTED]" вместо полного ключа
-```
+Статический хелпер. Редактирует API-ключи в логах: `sk-proj-AbCd****[REDACTED]`.
 
 ---
 
 ## 5. Контроллеры (Controllers)
 
 ### `SecurityController`
-
-Обрабатывает авторизацию:
-- `GET/POST /login` → `security/login.html.twig` (форма входа, CSRF-защита)
-- `GET /logout` → выход (обрабатывается firewall Symfony, редирект на `/login`)
+- `GET/POST /login` → форма входа (CSRF)
+- `GET /logout` → выход
 
 ### `DashboardController`
-
-Рендерит HTML-страницы:
 - `/` → `dashboard.html.twig` (принимает `?page=dashboard|bot|history`)
 - `/settings` → `settings.html.twig`
 
 ### `ApiController`
-
 Все эндпоинты — см. раздел 7.
 
 ---
 
 ## 6. Фронтенд
 
-**`public/assets/js/app.js`** — логика дашборда:
+### Дизайн-система (`style.css`)
+
+CSS построен на custom properties:
+
+```css
+:root {
+  --brand-navy:   #1B2A41;   /* основной тёмно-синий */
+  --brand-navy-2: #0F1B2D;   /* темнее для хедера */
+  --brand-orange: #F59E0B;   /* оранжевый акцент */
+  --bg:           #0B1220;   /* фон страниц */
+  --panel:        #0F1B2D;   /* карточки/таблицы */
+  --panel-2:      #111A2E;   /* th, inputs, вложенные блоки */
+  --border:       rgba(255,255,255,0.08);
+  --positive:     #10B981;
+  --negative:     #EF4444;
+  --warning:      #F59E0B;
+}
+```
+
+**Кнопки:** `btn-primary` (оранжевый), `btn-secondary` (navy), `btn-danger`, `btn-success`, `btn-small` + иконочные варианты `btn-icon-lock` / `btn-icon-danger`.
+
+**Бейджи позиций:** `.side-long` (зелёный outline), `.side-short` (красный), `.lock-badge` (серый).
+
+**Bot alert:** `.bot-alert.success/warning/error` — структурированный блок с иконкой и опциональным `<details>` для raw-данных.
+
+### Navbar (`base.html.twig`)
+- Логотип в белом «пилюле»-контейнере (оригинальные цвета, нет filter)
+- Оранжевая нижняя полоска (3px `--brand-orange`)
+- Bootstrap Icons 1.11 (CDN) на всех nav-ссылках
+- Footer: иконка BT + описание проекта + технический стек
+
+### `public/assets/js/app.js`
 
 | Функция | Описание |
 |---|---|
-| `loadDashboard()` | Загружает все секции: баланс, статистику, позиции, ордера, сделки, историю бота |
-| `loadPositions()` | Таблица позиций: Long/Short цветом, Entry USDT, leverage, liquidation, кнопки закрытия/замка |
-| `loadOrders()` | Открытые ордера. Показывает `triggerPrice` если `price=0` |
-| `loadTrades()` | История сделок. Long/Short цветом |
-| `loadBotHistory()` | Таблица истории решений бота (последние 50 событий за 7 дней) |
-| `runBotTick()` | Запускает `/api/bot/tick`, показывает `summary` в `#bot-status-message` |
-| `switchDashboardPage(page)` | Переключение страниц дашборда по `data-page` атрибуту |
+| `loadDashboard()` | Загружает все секции: баланс, статистику, позиции, ордера, сделки, историю бота, метрики, решения |
+| `loadPositions()` | Таблица позиций с side-бейджами, иконочными кнопками lock/close, колонкой "Почему?" |
+| `runBotTick()` | Запускает `/api/bot/tick`, показывает `.bot-alert` в `#bot-status-message` |
+| `renderWhyBadge(decision)` | Бейдж в колонке "Почему?": action, confidence, risk, override |
+| `loadBotMetrics()` | Загружает `/api/bot/metrics`, вызывает `renderBotMetrics()` |
+| `renderBotMetrics(m)` | Рендер карточек метрик, таблицы по action-типам, skip-тегов |
+| `loadBotDecisions()` | Загружает `/api/bot/decisions`, вызывает `renderDecisionsTable()` |
+| `renderDecisionsTable(data)` | Таблица трассировки LLM-решений |
+| `loadOrders()` | Открытые ордера |
+| `loadTrades()` | История сделок |
+| `loadBotHistory()` | История событий бота (50 событий, 7 дней) |
+| `switchDashboardPage(page)` | Переключение страниц по `data-page` атрибуту |
 
-**`public/assets/js/settings.js`** — логика настроек:
-
-- Загрузка/сохранение всех блоков: Bybit, ChatGPT, DeepSeek, Trading
-- Поля `bot_timeframe` (выпадающий список) и `bot_history_candles` (число)
-- Тестирование подключения к Bybit и LLM с отображением raw-ответа при ошибке
-- Обработчик глобальных AJAX-ошибок 401 (редирект на `/login`)
-
-**Навигация (`base.html.twig`):**
-- Дашборд: `/?page=dashboard`
-- Бот: `/?page=bot`
-- История: `/?page=history`
-- Настройки: `/settings`
-- Выйти: `/logout`
+### `public/assets/js/settings.js`
+- Загрузка/сохранение: Bybit, ChatGPT, DeepSeek, Trading, Risk Guards, Alerts
+- Тест-алерт через `POST /api/alerts/test`
+- Обработчик 401 (редирект на `/login`)
 
 ---
 
 ## 7. API Endpoints
 
-Все эндпоинты: `GET/POST /api/...` Требуют авторизации (сессия Symfony).
+Все эндпоинты: `GET/POST /api/...` Требуют авторизации.
 
 | Метод | URL | Описание |
 |---|---|---|
-| GET | `/api/positions` | Открытые позиции (с полем `locked`) |
+| GET | `/api/positions` | Открытые позиции (с `locked`, `lastDecision`) |
 | GET | `/api/orders` | Открытые ордера (query: `symbol`) |
 | GET | `/api/trades` | История исполнений (query: `limit`) |
 | GET | `/api/closed-trades` | Закрытые позиции (query: `limit`) |
@@ -375,37 +429,70 @@ LogSanitizer::log('Prefix', $message, $settingsService);
 | GET | `/api/market-data/{symbol}` | Данные по символу |
 | GET | `/api/market-analysis/{symbol}` | LLM-анализ монеты |
 | GET | `/api/analysis/proposals` | LLM-предложения по сделкам |
-| POST | `/api/bot/tick` | Запуск тика бота (управление позициями + авто-открытие) |
-| GET | `/api/bot/history` | История решений бота (50 событий, 7 дней) |
+| POST | `/api/bot/tick` | Запуск тика бота. Возвращает `run_id`, `managed[]`, `opened[]` |
+| GET | `/api/bot/history` | История событий бота (50, 7 дней) |
+| GET | `/api/bot/metrics` | Агрегированные метрики LLM (query: `days`) |
+| GET | `/api/bot/decisions` | Детальная трасса LLM-решений (query: `limit`) |
+| GET | `/api/bot/runs` | История запусков тика (query: `limit`). Для диагностики |
+| GET | `/api/risk/status` | Статус всех риск-гардов |
+| GET | `/api/pending-actions` | Действия ожидающие подтверждения |
+| POST | `/api/pending-actions/{id}/confirm` | Подтвердить действие |
+| POST | `/api/pending-actions/{id}/reject` | Отклонить действие |
 | POST | `/api/order/open` | Открытие ордера |
-| POST | `/api/position/close` | Полное закрытие позиции вручную |
-| POST | `/api/position/lock` | Установка/снятие замка на позицию |
+| POST | `/api/position/close` | Ручное закрытие позиции |
+| POST | `/api/position/lock` | Установка/снятие замка |
 | GET | `/api/settings` | Получить все настройки |
 | POST | `/api/settings` | Обновить настройки |
 | GET | `/api/test/bybit` | Проверить подключение к Bybit |
 | GET | `/api/test/chatgpt` | Проверить подключение к LLM |
+| POST | `/api/alerts/test` | Отправить тестовый алерт |
 
 ---
 
 ## 8. Настройки
 
-Страница `/settings` содержит:
+### Bybit API
+`api_key`, `api_secret`, `testnet` (checkbox), `base_url`
 
-**Bybit API:** api_key, api_secret, testnet (checkbox), base_url
+### ChatGPT API
+`api_key`, `model` (gpt-4o / gpt-4 / gpt-3.5-turbo), `enabled`
 
-**ChatGPT API:** api_key, model (gpt-4 / gpt-3.5-turbo), enabled, кнопка проверки
+### DeepSeek API (fallback)
+`api_key`, `model` (deepseek-chat / deepseek-reasoner), `enabled`
 
-**DeepSeek API (fallback LLM):** api_key, model (deepseek-chat / deepseek-reasoner), enabled, кнопка проверки
+### Торговые параметры
+| Параметр | Описание |
+|---|---|
+| `max_position_usdt` | Максимальный размер позиции в USDT |
+| `min_leverage` / `max_leverage` | Диапазон плеча для LLM |
+| `aggressiveness` | conservative / balanced / aggressive |
+| `max_managed_positions` | Максимум позиций под управлением (default: 10) |
+| `auto_open_min_positions` | Порог для автооткрытия (default: 5) |
+| `auto_open_enabled` | Разрешить боту открывать новые сделки |
+| `bot_timeframe` | Таймфрейм решений: 1/5/15/30/60/240/1440 мин |
+| `bot_history_candles` | Свечей истории для LLM (5–60) |
 
-**Торговые параметры:**
-- `max_position_usdt` — максимальный размер позиции в USDT
-- `min_leverage` / `max_leverage` — диапазон плеча для LLM
-- `aggressiveness` — консервативная / сбалансированная / агрессивная
-- `max_managed_positions` — максимум позиций под управлением бота (default: 10)
-- `auto_open_min_positions` — минимум позиций для автооткрытия (default: 5)
-- `auto_open_enabled` — разрешить ли боту открывать новые сделки
-- `bot_timeframe` — таймфрейм принятия решений: 1/5/15/30/60/240/1440 мин
-- `bot_history_candles` — сколько свечей истории передавать боту (5–60)
+### Risk Guards
+| Параметр | Описание |
+|---|---|
+| `trading_enabled` | Kill-switch: false = все торговые операции заблокированы |
+| `daily_loss_limit_usdt` | Лимит потерь за день. 0 = отключено |
+| `max_total_exposure_usdt` | Макс. суммарный залог (notional/leverage). 0 = отключено |
+| `action_cooldown_minutes` | Cooldown между действиями по одному символу. 0 = без ограничений |
+| `bot_strict_mode` | Двухфазное исполнение: CLOSE_FULL и AVERAGE_IN требуют подтверждения |
+
+### Алерты (Telegram / Webhook)
+| Параметр | Описание |
+|---|---|
+| `telegram_bot_token` | Token Telegram-бота |
+| `telegram_chat_id` | ID чата/группы |
+| `webhook_url` | URL для Slack / Discord / custom |
+| `on_llm_failure` | Уведомлять при сбоях LLM |
+| `on_invalid_response` | Уведомлять при невалидном ответе LLM |
+| `on_risk_limit` | Уведомлять при превышении риск-лимитов |
+| `on_bybit_error` | Уведомлять об ошибках Bybit API |
+| `on_repeated_failures` | Уведомлять о повторяющихся ошибках |
+| `repeated_failure_threshold` | Порог consecutive failures (default: 3) |
 
 ---
 
@@ -416,61 +503,60 @@ LogSanitizer::log('Prefix', $message, $settingsService);
 Бот запускается через `POST /api/bot/tick` — вручную (кнопка в UI) или по расписанию (cron, Task Scheduler).
 
 **Рекомендуемый cron (каждую минуту):**
-```
-* * * * * curl -s -X POST http://localhost/api/bot/tick > /dev/null 2>&1
-```
-
-**Windows Task Scheduler:**
-```
-powershell -Command "Invoke-WebRequest -Uri 'http://localhost/api/bot/tick' -Method POST"
+```bash
+* * * * * /usr/bin/curl -s -X POST http://localhost/api/bot/tick
 ```
 
 ### Алгоритм тика
 
 ```
-1. Загрузить текущие позиции из Bybit
-2. Проверить частоту: прошло ли >= bot_timeframe минут с последнего тика?
-   ├── НЕТ → вернуть "ждём таймфрейм"
-   └── ДА → продолжить
-3. Обогатить позиции историей цен с Bybit kline (компактный формат)
-4. [Шаг 1] Управление позициями:
-   ├── Вызов ChatGPTService::manageOpenPositions
-   └── По каждому решению LLM:
-       ├── Позиция заблокирована? → пропустить
-       ├── CLOSE_FULL → closePositionMarket(fraction=1.0)
-       ├── CLOSE_PARTIAL → closePositionMarket(fraction), skip если qty<min
-       ├── MOVE_STOP_TO_BREAKEVEN → только если PnL > 0, иначе skip
-       ├── AVERAGE_IN_ONCE → только если не усреднялся за 7 дней
-       └── DO_NOTHING → пропустить
-5. [Шаг 2] Автооткрытие (если auto_open_enabled):
-   ├── Если открытых позиций < auto_open_min_positions
-   └── Открыть сделки с confidence >= 80%
-6. Залогировать bot_tick с managedCount, openedCount, timeframe
-7. Вернуть JSON с summary, managed[], opened[]
+1. Kill-switch: trading_enabled = false → вернуть blocked
+2. Daily loss limit: checkDailyLossLimit() → если нарушен → вернуть blocked + alertRiskLimit
+3. Idempotency: BotRunService::tryStart(botTimeframe)
+   ├── null  → bucket уже выполнен/выполняется → вернуть skipped
+   └── runId → продолжить
+4. Загрузить текущие позиции из Bybit
+5. Обогатить позиции историей цен (kline)
+6. LLM: ChatGPTService::manageOpenPositions → список решений
+   └── если пустой при наличии позиций → log(llm_failure)
+7. По каждому решению LLM:
+   ├── action = DO_NOTHING → пропустить
+   ├── position not found → пропустить
+   ├── isLocked(symbol, side) → skip(locked)
+   ├── !isActionAllowed(symbol) → skip(cooldown)
+   ├── isStrictMode() + isDangerousAction() → add pendingAction → skip(strict_mode_pending)
+   └── execute:
+       ├── CLOSE_FULL           → closePositionMarket(1.0)
+       ├── CLOSE_PARTIAL        → closePositionMarket(fraction)
+       ├── MOVE_STOP_TO_BREAKEVEN → только если PnL > 0
+       └── AVERAGE_IN_ONCE      → только если !alreadyAveraged[7 days]
+8. Автооткрытие (если auto_open_enabled):
+   ├── checkMaxExposure → если нарушен → alertRiskLimit, slots=0
+   ├── slots = min(minPositions - openCount, maxManaged - openCount)
+   └── getProposals → открыть с confidence >= 80%
+9. log(bot_tick, {run_id, managedCount, openedCount, timeframe})
+10. BotRunService::finish(runId, 'done')
+11. Вернуть {ok, run_id, summary, managed[], opened[]}
 ```
 
-### Решения LLM для позиций
+### Трасса решений (LLM observability)
 
-LLM получает:
-- Таймфрейм торговли (например, "5min")
-- По каждой позиции: symbol, side, size, entry, mark, pnl, leverage, openedAt, **история цен**
-- Сводку истории бота за 7 дней (по символам: wins/losses/errors)
-- Список символов, по которым было усреднение в последние 7 дней
-
-Возможные действия LLM: `CLOSE_FULL`, `CLOSE_PARTIAL`, `MOVE_STOP_TO_BREAKEVEN`, `AVERAGE_IN_ONCE`, `DO_NOTHING`
+Каждое выполненное событие содержит:
+- `confidence` (0-100), `reason`, `risk` (low/medium/high)
+- `checks` (pnl_positive, trend, averaging_allowed)
+- `prompt_version` (`manage_v3`), `provider` (chatgpt/deepseek)
+- `skip_reason` (если пропущено: `locked` / `cooldown` / `strict_mode_pending` / `already_averaged`)
+- `pnlAtDecision`, `realizedPnlEstimate`
 
 ---
 
 ## 10. История цен и таймфреймы
 
-**Источник данных: Bybit `/v5/market/kline`** — публичный эндпоинт, авторизация не нужна.
+**Источник:** Bybit `/v5/market/kline` — публичный эндпоинт.
 
-Вместо самостоятельного сбора цен с накоплением во времени, при каждом тике бота вызывается `BybitService::getKlineHistory()`, который мгновенно получает готовые исторические свечи с биржи. Это даёт:
-- Полные OHLCV-данные (а не только текущую цену снапшота)
-- Мгновенный доступ к любому таймфрейму без периода накопления
-- Нет хранилища на диске — данные всегда свежие прямо с биржи
+При каждом тике вызывается `getKlineHistory()` — мгновенный доступ к OHLCV без периода накопления.
 
-**Маппинг таймфреймов (минуты → Bybit interval):**
+**Маппинг таймфреймов:**
 
 | Настройка (мин) | Bybit interval |
 |---|---|
@@ -482,51 +568,35 @@ LLM получает:
 | 240 | `240` |
 | 1440 | `D` |
 
-**Формат для LLM (компактный, ~20–30 токенов на позицию):**
+**Компактный формат для LLM:**
 ```
-[60 5m candles | open=68000 close=69200 min=67000 max=69500 trend=UP] closes:67800,68100,68200,...
+[60 5m candles | open=68000 close=69200 min=67000 max=69500 trend=UP] closes:67800,68100,...
 ```
-
-Содержит: число свечей, таймфрейм, open/close/min/max, тренд, последние N close-цен.
-
-**Параметр `bot_history_candles`** (настройки, 5–60) — сколько свечей запрашивать у Bybit.
 
 ---
 
 ## 11. Токен-бюджет LLM
 
-Целевой максимум входного промпта: **14 000 символов ≈ 3 500 токенов**.  
-Лимит ответа: **2 000 токенов**.  
-Итого: ~5 500 токенов — безопасно для всех моделей (gpt-4 8k, gpt-3.5-turbo-16k, deepseek).
+Целевой максимум промпта: **14 000 символов ≈ 3 500 токенов**.
+Лимит ответа: **2 000 токенов**.
 
-**Алгоритм контроля:**
-
-1. Фиксированные части промпта (~2 200 символов): инструкции + история бота
-2. На каждую позицию базово ~120 символов (заголовок без истории)
-3. Остаток делится на позиции, каждая точка ≈ 8 символов → `maxPricePoints`
-4. `maxPricePoints` ограничен: min=5, max=30
-5. **Аварийный fallback:** если промпт всё равно > 14 000 символов — история цен убирается полностью
-
-**Пример расчёта для 10 позиций:**
-- Доступно для истории: 14000 - 2200 - 10×120 = 10600 символов
-- На позицию: 10600 / 10 = 1060 символов / 8 = 132 точки → ограничено до 30
-- Каждая позиция получает 30 ценовых точек
+**Алгоритм:**
+1. Фиксированные части (~2 200 символов): инструкции + история бота
+2. На каждую позицию базово ~120 символов
+3. Остаток / позиции / 8 = `maxPricePoints` (min=5, max=30)
+4. Fallback: если > 14 000 — история цен убирается полностью
 
 ---
 
 ## 12. Интеграция с Bybit API v5
 
-**Base URL:**
-- Testnet: `https://api-testnet.bybit.com`
-- Mainnet: `https://api.bybit.com`
+**Base URL:** testnet `https://api-testnet.bybit.com` / mainnet `https://api.bybit.com`
 
 ### Аутентификация
-
 ```
-offset    = serverTime − localTime          // из GET /v5/market/time, кешируется 5 мин
+offset    = serverTime − localTime   // GET /v5/market/time, кеш 5 мин
 timestamp = now_ms + offset
-signStr   = timestamp + api_key + recvWindow + queryString   // GET
-signStr   = timestamp + api_key + recvWindow + body          // POST
+signStr   = timestamp + api_key + recvWindow + queryString (GET) / body (POST)
 signature = HMAC_SHA256(signStr, api_secret)
 Headers: X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-SIGN-TYPE=2, X-BAPI-TIMESTAMP, X-BAPI-RECV-WINDOW=20000
 ```
@@ -535,157 +605,118 @@ Headers: X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-SIGN-TYPE=2, X-BAPI-TIMESTAMP, X-BA
 
 | Механизм | Поведение |
 |---|---|
-| **Retry + backoff** | До 3 попыток; паузы 1s → 2s → 4s. Применяется при сетевых ошибках и HTTP 5xx |
-| **Rate-limit (HTTP 429)** | Читает `Retry-After` заголовок, ждёт (мин 1с, макс 30с), затем повторяет |
+| **Retry + backoff** | До 3 попыток; 1s → 2s → 4s. Сетевые ошибки и HTTP 5xx |
+| **Rate-limit (HTTP 429)** | Читает `Retry-After`, ждёт (мин 1с, макс 30с) |
 | **Rate-limit (retCode 10006)** | Bybit-уровень; backoff + повтор |
-| **Timestamp re-sync** | При retCode 10002 — инвалидирует кеш сдвига, делает повтор |
-| **Instrument cache invalidation** | При qty-ошибках (110017, 110009, 170036, 170037, 110043) — сбрасывает кеш инструмента и логирует |
-
-### Кеш инструментов
-
-- Хранится в `var/instrument_cache.json` (TTL 1 час)
-- In-memory layer для повторных вызовов внутри одного запроса
-- При qty-ошибке: `invalidateInstrumentCache(symbol)` → следующий `placeOrder` получит свежие данные
+| **Timestamp re-sync** | retCode 10002 → инвалидация offset-кеша + повтор |
+| **Instrument cache invalidation** | qty-ошибки (110017, 110009, 170036, 170037, 110043) → сброс кеша |
 
 ### Символы
 
 | Правило | Пример |
 |---|---|
-| `*PERP` → `*USDT` для market-data/kline | `BTCPERP` → `BTCUSDT` |
-| Dated-контракты фильтруются | `MNTUSDT-13MAR26` → исключён из топа |
-| Дедупликация: предпочтение `*PERP` на testnet | `BTCPERP` выигрывает у `BTCUSDT` в `getTopMarkets` |
+| `*PERP` → `*USDT` для kline/market-data | `BTCPERP` → `BTCUSDT` |
+| Dated-контракты фильтруются | `MNTUSDT-13MAR26` → исключён |
+| Дедупликация: предпочтение `*PERP` на testnet | `BTCPERP` выигрывает у `BTCUSDT` |
 
 ### Расчёт qty
-
 ```
 rawQty = positionSizeUSDT / price
-qty    = floor(rawQty / qtyStep) * qtyStep   // выравнивание по шагу
+qty    = floor(rawQty / qtyStep) * qtyStep
 ```
-Если `qty < minOrderQty` → ошибка с указанием минимальной суммы в USDT.  
-Перед отправкой в лог пишется: symbol, side, USDT, price, rawQty, qty, leverage, minQty, maxQty, step, levRange (без ключей).
-
-### Известные особенности testnet
-
-- `liqPrice` может быть пустым — UTA считает ликвидацию на уровне портфеля
-- `getClosedTrades` может возвращать пустой список → фоллбэк на `getTrades`
-- `BTCUSDT` на testnet имеет некорректные исторические цены; `BTCPERP` — корректные
+Если `qty < minOrderQty` → ошибка с указанием минимальной суммы в USDT.
 
 ---
 
 ## 13. Интеграция с LLM
 
 ### Порядок вызова
+1. ChatGPT включён + api_key задан → пробуем ChatGPT
+2. Недоступен → пробуем DeepSeek
+3. Оба недоступны → null / mock + `alertLLMFailure()`
 
-1. Если ChatGPT включён и `api_key` задан → пробуем ChatGPT
-2. Если ChatGPT недоступен (ошибка, нет баланса) → пробуем DeepSeek
-3. Если оба недоступны → возвращаем null / mock-данные
+### Параметры
 
-### Параметры вызовов
-
-| Метод | temperature | max_tokens | Примечание |
-|---|---|---|---|
-| `getProposals` | 0.5 | 1500 | 25 монет, JSON-массив |
-| `manageOpenPositions` | 0.4 | 2000 | До 10 позиций с историей |
-| `analyzeMarket` | 0.7 | 500 | Анализ одной монеты |
-| `testConnection` | 0.1 | 10 | Health-check |
-
-### Проверка подключения
-
-`GET /api/test/chatgpt` возвращает:
-```json
-{"ok": true, "message": "LLM connection ok"}
-// или
-{"ok": false, "error": "...", "raw": "сырой ответ LLM"}
-```
+| Метод | temperature | max_tokens |
+|---|---|---|
+| `getProposals` | 0.5 | 1500 |
+| `manageOpenPositions` | 0.4 | 2000 |
+| `analyzeMarket` | 0.7 | 500 |
+| `testConnection` | 0.1 | 10 |
 
 ---
 
 ## 14. Cron / ручной запуск бота
 
-**Логика частоты:**
-- Бот должен запускаться каждую минуту
-- Принятие решений — только если прошло `bot_timeframe` минут с последнего тика
-
-**Ручной запуск:** кнопка "Запустить бота" на странице `/?page=bot` в дашборде.
-
-**Настройка cron (Linux):**
+**Linux cron (каждую минуту):**
 ```bash
-* * * * * /usr/bin/curl -s -X POST http://localhost/api/bot/tick
+* * * * * /usr/bin/curl -s -X POST https://bybit.palki.ru/api/bot/tick
 ```
 
-**Windows Task Scheduler (каждую минуту):**
-1. Открыть Task Scheduler → Create Task
-2. Triggers: "Daily", повторять каждые 1 минуту в течение 1 дня
-3. Actions: `powershell.exe -Command "Invoke-WebRequest -Uri 'http://YOUR_URL/api/bot/tick' -Method POST"`
+**Windows Task Scheduler:**
+```
+powershell -Command "Invoke-WebRequest -Uri 'http://localhost/api/bot/tick' -Method POST"
+```
+
+**Идемпотентность:** `BotRunService` гарантирует, что если тик для данного timeframe-окна уже запущен или завершён — повторный вызов вернёт `{"skipped": true}` без лишних запросов к Bybit и LLM. Это позволяет безопасно запускать cron каждую минуту независимо от выбранного таймфрейма.
+
+**Диагностика запусков:** `GET /api/bot/runs` — последние 30 записей с `run_id`, `timeframe_bucket`, `status`, `started_at`, `finished_at`.
 
 ---
 
 ## 15. Данные и хранилище
 
+Все JSON-файлы защищены от гонок через `AtomicFileStorage` (flock + temp-rename).
+
 | Файл | Описание | Лимит |
 |---|---|---|
-| `var/settings.json` | Настройки приложения (без API-ключей) | — |
+| `var/settings.json` | Настройки (без API-ключей) | — |
 | `var/bot_history.json` | История событий бота | 14 дней, 1 000 записей |
+| `var/bot_runs.json` | История запусков тика (идемпотентность) | 200 записей |
 | `var/position_locks.json` | Заблокированные позиции | — |
-| `var/pending_actions.json` | Действия бота, ожидающие подтверждения (strict mode) | TTL 60 мин |
-| `var/bybit_time_offset.json` | Кеш сдвига часов между локальным временем и сервером Bybit | TTL 5 мин |
-| `var/instrument_cache.json` | Кеш параметров инструментов Bybit (lotSizeFilter, leverageFilter) | TTL 1 ч / запись |
+| `var/pending_actions.json` | Ожидают подтверждения (strict mode) | TTL 60 мин |
+| `var/bybit_time_offset.json` | Кеш сдвига часов с Bybit | TTL 5 мин |
+| `var/instrument_cache.json` | Кеш параметров инструментов | TTL 1 ч / запись |
 
-История цен монет хранится **на стороне Bybit** и запрашивается через `/v5/market/kline` при каждом тике — локальный файл не нужен.
+История цен — **на стороне Bybit** (`/v5/market/kline`), локально не хранится.
 
-Все файлы создаются автоматически при первом запуске.
+Все файлы создаются автоматически. `var/*.lock` — служебные lock-файлы, создаются рядом с каждым JSON.
 
 ---
 
 ## 16. Безопасность
 
-### Аутентификация (форма входа)
+### Аутентификация
+- Symfony Security `form_login`, сессионная авторизация
+- CSRF-защита формы входа
+- Все `/api/*` и `/settings` требуют активной сессии → редирект на `/login`
 
-Приложение использует **Symfony Security** с формой входа (`form_login`).
-
-- При открытии любого URL пользователь перенаправляется на `/login`
-- После успешного входа — на главную страницу (`/`)
-- Кнопка "Выйти" в навигации → `GET /logout`
-- CSRF-токен защищает форму от подделки запросов
-
-**Настройка учётных данных** — только в `.env.local` (не коммитится в git):
-
+**`.env.local`:**
 ```dotenv
 APP_AUTH_USER=admin
-# Одинарные кавычки ОБЯЗАТЕЛЬНЫ — иначе $ в bcrypt-хеше сломает парсинг
+# Одинарные кавычки ОБЯЗАТЕЛЬНЫ (bcrypt-хеш содержит $)
 APP_AUTH_PASSWORD_HASHED='$2y$13$...'
 ```
 
 **Смена пароля:**
 ```bash
-php bin/console security:hash-password ВАШ_НОВЫЙ_ПАРОЛЬ
-# Скопируйте результат в .env.local в одинарных кавычках
+php bin/console security:hash-password ВАШ_ПАРОЛЬ
 ```
 
-### API-ключи из переменных окружения
-
-API-ключи (Bybit, OpenAI, DeepSeek) хранятся в `.env.local` и **не сохраняются в `var/settings.json`**:
-
+### API-ключи
+Хранятся только в `.env.local`, не попадают в `settings.json`:
 ```dotenv
-BYBIT_API_KEY=AamatQ7B...
-BYBIT_API_SECRET=p0vdpJyz...
-CHATGPT_API_KEY=sk-proj-...
-DEEPSEEK_API_KEY=sk-1a47...
+BYBIT_API_KEY=...
+BYBIT_API_SECRET=...
+CHATGPT_API_KEY=...
+DEEPSEEK_API_KEY=...
 ```
 
-`SettingsService::applyEnvOverrides()` считывает эти переменные и перекрывает значения из `settings.json`.
-
-### Логи
-
-`LogSanitizer` автоматически заменяет API-ключи в логах на `****[REDACTED]`. Полные Bearer-токены также редактируются.
-
-### Что НЕ коммитится в git
-
+### Что НЕ коммитится
 ```
-.env.local          ← реальные ключи и пароль
-.env.*.local        ← любые локальные переопределения
-var/                ← данные приложения (settings.json, история)
-vendor/             ← зависимости Composer
+.env.local       ← реальные ключи и пароль
+var/             ← данные приложения
+vendor/          ← зависимости Composer
 ```
 
 ---
@@ -693,20 +724,23 @@ vendor/             ← зависимости Composer
 ## 17. Известные ограничения и особенности
 
 **Testnet:**
-- Некоторые символы (BTCUSDT) имеют ненастоящие цены на testnet — отображаются данные BTCPERP
-- `liqPrice` пустой для UTA-аккаунтов (используется портфельный расчёт ликвидации)
-- `getClosedTrades` может возвращать пустой массив — статистика считается по `getTrades`
+- `BTCUSDT` на testnet — ненастоящие цены; `BTCPERP` корректнее
+- `liqPrice` пустой для UTA-аккаунтов
+- `getClosedTrades` может возвращать пустой массив → фоллбэк на `getTrades`
 
-**TradingView:**
-- Некоторые символы (например, 1000PEPEUSDT) не поддерживаются виджетом TradingView — ожидаемое поведение
+**LLM:**
+- При невалидном JSON или нарушении контракта → автоматически `DO_NOTHING` + алерт
+- Если оба LLM недоступны в тик — `llm_failure` пишется в историю
 
-**Комиссии:**
-- Bybit берёт ~0.06% за открытие и ~0.06% за закрытие
-- Бот учитывает комиссии в промпте: не торгует если ожидаемое движение слишком мало
+**Атомарность:**
+- `.lock`-файлы остаются рядом с JSON — это нормально, не удалять
+- На Windows `rename()` над существующим файлом атомарен (NTFS)
 
 **Усреднение:**
-- AVERAGE_IN_ONCE допускается не чаще 1 раза в 7 дней на символ
+- `AVERAGE_IN_ONCE` — не чаще 1 раза в 7 дней на символ
 
-**Замок позиции:**
-- Если позиция заблокирована (`locked=true`), бот её не трогает ни при каких условиях
-- Пользователь может закрыть её вручную через кнопку в таблице позиций
+**TradingView:**
+- Некоторые символы (1000PEPEUSDT) не поддерживаются виджетом — ожидаемо
+
+**Комиссии:**
+- ~0.06% открытие + ~0.06% закрытие; учитываются в промпте LLM
