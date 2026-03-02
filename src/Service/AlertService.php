@@ -65,15 +65,12 @@ class AlertService
 
     /**
      * Send to all configured destinations (Telegram, webhook).
+     * Fire-and-forget: errors are only logged, not thrown.
      */
     public function send(string $level, string $message, array $context = []): void
     {
-        $cfg = $this->cfg();
-
-        $text = sprintf("[%s][BYBIT-BOT][%s] %s", strtoupper($level), date('d.m H:i'), $message);
-        foreach ($context as $k => $v) {
-            $text .= "\n  {$k}: " . (is_scalar($v) ? (string)$v : json_encode($v, JSON_UNESCAPED_UNICODE));
-        }
+        $cfg  = $this->cfg();
+        $text = $this->buildText($level, $message, $context);
 
         $token  = $cfg['telegram_bot_token'] ?? '';
         $chatId = $cfg['telegram_chat_id']   ?? '';
@@ -82,7 +79,7 @@ class AlertService
                 $this->httpClient->request('POST', "https://api.telegram.org/bot{$token}/sendMessage", [
                     'json'    => ['chat_id' => $chatId, 'text' => $text],
                     'timeout' => 5,
-                ]);
+                ])->getContent(false);
             } catch (\Exception $e) {
                 LogSanitizer::log('Alert', 'Telegram failed: ' . $e->getMessage(), $this->settingsService);
             }
@@ -94,10 +91,84 @@ class AlertService
                 $this->httpClient->request('POST', $webhook, [
                     'json'    => ['text' => $text],
                     'timeout' => 5,
-                ]);
+                ])->getContent(false);
             } catch (\Exception $e) {
                 LogSanitizer::log('Alert', 'Webhook failed: ' . $e->getMessage(), $this->settingsService);
             }
         }
+    }
+
+    /**
+     * Like send(), but returns ['ok' => bool, 'error' => string] for use in test endpoints.
+     * Reads and validates all destination responses.
+     */
+    public function sendTest(string $message, array $context = []): array
+    {
+        $cfg  = $this->cfg();
+        $text = $this->buildText('INFO', $message, $context);
+
+        $token  = $cfg['telegram_bot_token'] ?? '';
+        $chatId = $cfg['telegram_chat_id']   ?? '';
+        $webhook = $cfg['webhook_url']       ?? '';
+
+        if ($token === '' && $webhook === '') {
+            return ['ok' => false, 'error' => 'Не настроен ни Telegram, ни Webhook. Заполните токен и Chat ID.'];
+        }
+
+        $errors = [];
+
+        if ($token !== '' || $chatId !== '') {
+            if ($token === '') {
+                $errors[] = 'Telegram: не заполнен Bot Token.';
+            } elseif ($chatId === '') {
+                $errors[] = 'Telegram: не заполнен Chat ID.';
+            } else {
+                try {
+                    $response = $this->httpClient->request('POST', "https://api.telegram.org/bot{$token}/sendMessage", [
+                        'json'    => ['chat_id' => $chatId, 'text' => $text],
+                        'timeout' => 8,
+                    ]);
+                    $body = json_decode($response->getContent(false), true);
+                    if (!($body['ok'] ?? false)) {
+                        $tgError = $body['description'] ?? 'неизвестная ошибка Telegram';
+                        $errors[] = "Telegram: {$tgError}";
+                    }
+                } catch (\Exception $e) {
+                    $errors[] = 'Telegram: ' . $e->getMessage();
+                }
+            }
+        }
+
+        if ($webhook !== '') {
+            try {
+                $response = $this->httpClient->request('POST', $webhook, [
+                    'json'    => ['text' => $text],
+                    'timeout' => 8,
+                ]);
+                $status = $response->getStatusCode();
+                if ($status >= 400) {
+                    $errors[] = "Webhook: HTTP {$status}";
+                }
+            } catch (\Exception $e) {
+                $errors[] = 'Webhook: ' . $e->getMessage();
+            }
+        }
+
+        if (!empty($errors)) {
+            return ['ok' => false, 'error' => implode('; ', $errors)];
+        }
+
+        return ['ok' => true, 'message' => 'Алерт успешно отправлен.'];
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────
+
+    private function buildText(string $level, string $message, array $context): string
+    {
+        $text = sprintf("[%s][BYBIT-BOT][%s] %s", strtoupper($level), date('d.m H:i'), $message);
+        foreach ($context as $k => $v) {
+            $text .= "\n  {$k}: " . (is_scalar($v) ? (string)$v : json_encode($v, JSON_UNESCAPED_UNICODE));
+        }
+        return $text;
     }
 }

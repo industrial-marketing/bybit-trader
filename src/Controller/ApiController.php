@@ -651,12 +651,8 @@ class ApiController extends AbstractController
     #[Route('/alerts/test', name: 'api_alerts_test', methods: ['POST'])]
     public function testAlert(): JsonResponse
     {
-        try {
-            $this->alertService->send('INFO', 'Тестовый алерт от Bybit Trader', ['time' => date('Y-m-d H:i:s')]);
-            return $this->json(['ok' => true]);
-        } catch (\Exception $e) {
-            return $this->json(['ok' => false, 'error' => $e->getMessage()]);
-        }
+        $result = $this->alertService->sendTest('Тестовый алерт от Bybit Trader ✅', ['time' => date('Y-m-d H:i:s')]);
+        return $this->json($result);
     }
 
     #[Route('/test/bybit', name: 'api_test_bybit', methods: ['GET'])]
