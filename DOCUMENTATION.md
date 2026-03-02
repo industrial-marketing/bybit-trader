@@ -74,6 +74,8 @@ Symfony Router
 ```
 bybit_trader/
 ├── src/
+│   ├── Command/
+│   │   └── BotTickCommand.php        ← консольная команда app:bot-tick (для cron)
 │   ├── Controller/
 │   │   ├── ApiController.php         ← все /api/* эндпоинты
 │   │   ├── DashboardController.php   ← рендер страниц
@@ -648,19 +650,77 @@ qty    = floor(rawQty / qtyStep) * qtyStep
 
 ## 14. Cron / ручной запуск бота
 
-**Linux cron (каждую минуту):**
-```bash
-* * * * * /usr/bin/curl -s -X POST https://bybit.palki.ru/api/bot/tick
+### Рекомендуемый способ: Symfony Console команда
+
+```
+src/Command/BotTickCommand.php  →  php bin/console app:bot-tick
 ```
 
-**Windows Task Scheduler:**
+**Запуск вручную (проверка):**
+```bash
+cd /home/bybit/bybit-trader
+php bin/console app:bot-tick
+```
+
+**С флагом `--force`** — пропускает idempotency-проверку (полезно при отладке):
+```bash
+php bin/console app:bot-tick --force
+```
+
+**Настройка cron (каждую минуту):**
+```bash
+crontab -e
+```
+```
+* * * * * /usr/bin/php /home/bybit/bybit-trader/bin/console app:bot-tick >> /home/bybit/bot_cron.log 2>&1
+```
+
+**Ротация лога** (добавить в `/etc/logrotate.d/bybit-bot`):
+```
+/home/bybit/bot_cron.log {
+    weekly
+    rotate 4
+    compress
+    missingok
+    notifempty
+}
+```
+
+### Вывод команды
+
+Команда выводит цветной прогресс в stdout:
+```
+Bybit Trader — Bot Tick
+========================
+Run ID: 01HZ...  Timeframe: 5m
+Open positions: 2
+
+Managing open positions…
+  [OK] BTCUSDT Buy → MOVE_STOP_TO_BREAKEVEN
+  [SKIP locked] ETHUSDT Sell → CLOSE_FULL (locked)
+
+Auto-open disabled.
+
+[OK] Done. Managed: 1, Opened: 0.
+```
+
+Коды выхода: `0` — успех или пропущен (skip), `1` — исключение.
+
+### Идемпотентность
+
+`BotRunService` гарантирует выполнение тика не чаще одного раза на timeframe-окно. При запуске каждую минуту с `bot_timeframe=5` — реально отрабатывает раз в 5 минут, остальные 4 запуска тихо завершаются с `Skipped`.
+
+### Диагностика запусков
+
+`GET /api/bot/runs` — последние 30 записей: `run_id`, `timeframe_bucket`, `status`, `started_at`, `finished_at`.
+
+### Windows Task Scheduler (альтернатива)
+
 ```
 powershell -Command "Invoke-WebRequest -Uri 'http://localhost/api/bot/tick' -Method POST"
 ```
 
-**Идемпотентность:** `BotRunService` гарантирует, что если тик для данного timeframe-окна уже запущен или завершён — повторный вызов вернёт `{"skipped": true}` без лишних запросов к Bybit и LLM. Это позволяет безопасно запускать cron каждую минуту независимо от выбранного таймфрейма.
-
-**Диагностика запусков:** `GET /api/bot/runs` — последние 30 записей с `run_id`, `timeframe_bucket`, `status`, `started_at`, `finished_at`.
+> На продакшн-сервере рекомендуется использовать Console команду через cron, а не HTTP-эндпоинт — не требует сессии, логируется напрямую, работает без Apache.
 
 ---
 
