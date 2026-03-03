@@ -121,7 +121,7 @@ class ChatGPTService
      *
      * On invalid JSON from LLM: all positions → DO_NOTHING, alert sent.
      */
-    public function manageOpenPositions(BybitService $bybitService, array $positions): array
+    public function manageOpenPositions(BybitService $bybitService, array $positions, float $dataFreshnessSec = 0.0): array
     {
         if (!$this->hasAnyProvider() || empty($positions)) {
             return [];
@@ -191,8 +191,17 @@ class ChatGPTService
 }
 JSON;
 
+        $freshnessNote = '';
+        if ($dataFreshnessSec > 0) {
+            $freshnessNote = sprintf(
+                "⚠️ DATA FRESHNESS: markPrice/PnL are %.1fs old. Factor this uncertainty into confidence scores.\n",
+                $dataFreshnessSec
+            );
+        }
+
         $prompt  = "TRADING TIMEFRAME: {$tfLabel}. Use market price history on this timeframe for trend/momentum.\n";
-        $prompt .= "Price history = real market prices. ⚠️ If history is insufficient — note uncertainty.\n\n";
+        $prompt .= "Price history = real market prices. ⚠️ If history is insufficient — note uncertainty.\n";
+        $prompt .= $freshnessNote . "\n";
         $prompt .= "OPEN POSITIONS ({$posCount}):\n" . implode("\n\n", $lines);
         $prompt .= "\n\nBOT HISTORY (last 7 days):\n" . $historyContext;
         $prompt .= "\nAveraged in last 7 days: {$averagedList}.\n\n";

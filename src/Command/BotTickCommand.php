@@ -141,9 +141,27 @@ class BotTickCommand extends Command
         }
         unset($pos);
 
+        // ── Data freshness check ─────────────────────────────────────────
+        $freshnessCheck = $this->riskGuard->checkDataFreshness($positions);
+        if (!$freshnessCheck['ok']) {
+            $this->botHistory->log('stale_data_skip', [
+                'age_sec'     => $freshnessCheck['age_sec'],
+                'max_age_sec' => $freshnessCheck['max_age_sec'],
+                'message'     => $freshnessCheck['message'],
+            ]);
+            $this->alertService->alertRiskLimit('stale_data', ['message' => $freshnessCheck['message']]);
+            $this->botRunService->finish($runId, 'skipped');
+            $io->warning($freshnessCheck['message']);
+            return Command::SUCCESS;
+        }
+        $dataFreshnessSec = (float)($freshnessCheck['age_sec'] ?? 0.0);
+        if ($dataFreshnessSec > 5.0) {
+            $io->writeln(sprintf('<comment>Data freshness: %.1fs (limit %ds)</comment>', $dataFreshnessSec, $freshnessCheck['max_age_sec']));
+        }
+
         // ── LLM: manage open positions ───────────────────────────────────
         $io->section('Managing open positions…');
-        $manageDecisions = $this->chatGPTService->manageOpenPositions($this->bybitService, $positions);
+        $manageDecisions = $this->chatGPTService->manageOpenPositions($this->bybitService, $positions, $dataFreshnessSec);
 
         if (empty($manageDecisions) && $posCount > 0) {
             $this->botHistory->log('llm_failure', ['reason' => 'empty_decisions', 'positions_count' => $posCount]);
@@ -416,10 +434,11 @@ class BotTickCommand extends Command
         $openedCount  = count($opened);
 
         $this->botHistory->log('bot_tick', [
-            'run_id'       => $runId,
-            'managedCount' => $managedCount,
-            'openedCount'  => $openedCount,
-            'timeframe'    => $botTimeframe,
+            'run_id'             => $runId,
+            'managedCount'       => $managedCount,
+            'openedCount'        => $openedCount,
+            'timeframe'          => $botTimeframe,
+            'data_freshness_sec' => $dataFreshnessSec,
         ]);
 
         $this->botRunService->finish($runId, 'done');

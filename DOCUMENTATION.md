@@ -193,6 +193,8 @@ bybit_trader/
 | `getPositionBySymbol(symbol, side)` | Одна позиция по символу+side. Используется в ExecutionGuardService |
 | `getOrderFromHistory(symbol, orderId)` | Детали ордера из `/v5/order/history` (cumExecQty, avgPrice, orderStatus) |
 
+**Freshness:** каждая позиция содержит поле `_fetched_at_ms` (unix-мс, когда был получен ответ от Bybit). Используется `RiskGuardService::checkDataFreshness()` перед вызовом LLM.
+
 **HTTP-слой надёжности (`requestWithRetry`):**
 - Ретраи с backoff (1s → 2s → 4s, 3 попытки) на сетевые ошибки и HTTP 5xx
 - HTTP 429: ждёт `Retry-After`, затем повторяет
@@ -268,6 +270,7 @@ bybit_trader/
 | `manual_close_full` | Ручное закрытие пользователем |
 | `position_lock` | Установка/снятие замка |
 | `execution_mismatch` | Фактическое состояние биржи не совпало с ожидаемым после ордера |
+| `stale_data_skip` | Тик пропущен — данные позиций старее `max_data_age_sec` |
 
 **Ограничения:** 14 дней, максимум 1000 записей.
 
@@ -282,10 +285,11 @@ bybit_trader/
 | `isTradingEnabled()` | Kill-switch: `trading_enabled` из настроек |
 | `checkDailyLossLimit()` | Ежедневный лимит потерь (USDT). Суммирует realized PnL за сегодня |
 | `checkMaxExposure(positions)` | Максимальный суммарный риск (маржа). Считает `size × price / leverage` |
+| `checkDataFreshness(positions)` | Проверяет актуальность данных по `_fetched_at_ms`. Блокирует тик при устаревших ценах |
 | `isActionAllowed(symbol, recentEvents)` | Cooldown между действиями по символу (минуты) |
 | `isStrictMode()` | Строгий режим: опасные действия требуют подтверждения |
 | `isDangerousAction(action)` | `CLOSE_FULL` и `AVERAGE_IN_ONCE` → опасные |
-| `getRiskStatus(positions)` | Сводный статус для UI (все флаги + сообщения) |
+| `getRiskStatus(positions)` | Сводный статус для UI (все флаги + freshness_check + сообщения) |
 
 ---
 
@@ -511,6 +515,7 @@ CSS построен на custom properties:
 | `max_total_exposure_usdt` | Макс. суммарный залог (notional/leverage). 0 = отключено |
 | `action_cooldown_minutes` | Cooldown между действиями по одному символу. 0 = без ограничений |
 | `bot_strict_mode` | Двухфазное исполнение: CLOSE_FULL и AVERAGE_IN требуют подтверждения |
+| `max_data_age_sec` | Макс. допустимый возраст данных позиций в секундах. 0 = отключено (default: 30) |
 
 ### Алерты (Telegram / Webhook)
 | Параметр | Описание |

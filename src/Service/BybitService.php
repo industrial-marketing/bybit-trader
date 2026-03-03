@@ -340,7 +340,7 @@ class BybitService
 
             $data = $response->toArray(false);
             if (isset($data['retCode']) && $data['retCode'] === 0 && isset($data['result']['list'])) {
-                return $this->formatPositions($data['result']['list']);
+                return $this->formatPositions($data['result']['list'], (int)(microtime(true) * 1000));
             }
 
             // Timestamp error → re-sync and do one more try
@@ -352,7 +352,7 @@ class BybitService
                 ], 1);
                 $data2 = $response2->toArray(false);
                 if (($data2['retCode'] ?? -1) === 0 && isset($data2['result']['list'])) {
-                    return $this->formatPositions($data2['result']['list']);
+                    return $this->formatPositions($data2['result']['list'], (int)(microtime(true) * 1000));
                 }
             }
 
@@ -981,9 +981,12 @@ class BybitService
     // Format helpers
     // ═══════════════════════════════════════════════════════════════
 
-    private function formatPositions(array $positions): array
+    private function formatPositions(array $positions, int $fetchedAtMs = 0): array
     {
-        return array_values(array_map(function ($pos): array {
+        if ($fetchedAtMs === 0) {
+            $fetchedAtMs = (int)(microtime(true) * 1000);
+        }
+        return array_values(array_map(function ($pos) use ($fetchedAtMs): array {
             return [
                 'symbol'           => $pos['symbol']        ?? '',
                 'side'             => $pos['side']          ?? '',
@@ -998,6 +1001,7 @@ class BybitService
                 'openedAt'         => isset($pos['createdTime'])
                     ? date('Y-m-d H:i:s', (int)$pos['createdTime'] / 1000)
                     : date('Y-m-d H:i:s'),
+                '_fetched_at_ms'   => $fetchedAtMs,
             ];
         }, array_filter($positions, fn($p) => (float)($p['size'] ?? 0) > 0)));
     }
@@ -1067,7 +1071,7 @@ class BybitService
             ], 2);
             $data = $response->toArray(false);
             if (($data['retCode'] ?? -1) === 0 && isset($data['result']['list'])) {
-                $formatted = $this->formatPositions($data['result']['list']);
+                $formatted = $this->formatPositions($data['result']['list'], (int)(microtime(true) * 1000));
                 foreach ($formatted as $pos) {
                     if (($pos['side'] ?? '') === $side) {
                         return $pos;
