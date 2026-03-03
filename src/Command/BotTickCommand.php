@@ -7,6 +7,7 @@ use App\Service\BotHistoryService;
 use App\Service\BotRunService;
 use App\Service\BybitService;
 use App\Service\ChatGPTService;
+use App\Service\ExecutionGuardService;
 use App\Service\PendingActionsService;
 use App\Service\PositionLockService;
 use App\Service\RiskGuardService;
@@ -34,6 +35,7 @@ class BotTickCommand extends Command
         private readonly PendingActionsService $pendingActions,
         private readonly AlertService          $alertService,
         private readonly BotRunService         $botRunService,
+        private readonly ExecutionGuardService $executionGuard,
     ) {
         parent::__construct();
     }
@@ -250,10 +252,12 @@ class BotTickCommand extends Command
             $eventType        = null;
             $realizedEstimate = null;
             $skipReason       = null;
+            $guardResult      = null;
 
             if ($action === 'CLOSE_FULL' || $action === 'CLOSE_PARTIAL') {
-                $fraction = $action === 'CLOSE_FULL' ? 1.0 : (float) ($d['close_fraction'] ?? 0.5);
-                $result   = $this->bybitService->closePositionMarket($symbol, $side, $fraction);
+                $fraction   = $action === 'CLOSE_FULL' ? 1.0 : (float) ($d['close_fraction'] ?? 0.5);
+                $sizeBefore = (float) ($position['size'] ?? 0);
+                $result     = $this->bybitService->closePositionMarket($symbol, $side, $fraction);
                 if (!empty($result['skipped'])) {
                     $eventType  = 'close_partial_skip';
                     $skipReason = $result['skipReason'] ?? 'position_too_small';
@@ -262,6 +266,9 @@ class BotTickCommand extends Command
                     $realizedEstimate = $pnlAtDecision !== null
                         ? ($action === 'CLOSE_FULL' ? $pnlAtDecision : $pnlAtDecision * max(0, min(1, $fraction)))
                         : null;
+                    if ($result['ok'] ?? false) {
+                        $guardResult = $this->executionGuard->verifyClose($symbol, $side, $sizeBefore, $fraction, $result);
+                    }
                 }
             } elseif ($action === 'MOVE_STOP_TO_BREAKEVEN') {
                 $entry = (float) ($position['entryPrice']    ?? 0);
@@ -270,6 +277,9 @@ class BotTickCommand extends Command
                 if ($pnl > 0 && $entry > 0 && $mark > 0) {
                     $result    = $this->bybitService->setBreakevenStopLoss($symbol, $side, $entry);
                     $eventType = 'move_sl_to_be';
+                    if ($result['ok'] ?? false) {
+                        $guardResult = $this->executionGuard->verifyStopLoss($symbol, $side, $entry);
+                    }
                 } else {
                     $result     = ['ok' => true, 'skipped' => true];
                     $eventType  = 'move_sl_to_be_skip';
@@ -277,13 +287,15 @@ class BotTickCommand extends Command
                 }
             } elseif ($action === 'AVERAGE_IN_ONCE') {
                 if (!isset($alreadyAveraged[$symbol])) {
-                    $sizeUsdt  = max(1.0, (float) ($d['average_size_usdt'] ?? 10.0));
-                    $lev       = max(1, (int) ($position['leverage'] ?? 1));
-                    $bybitSide = strtoupper($side) === 'BUY' ? 'BUY' : 'SELL';
-                    $result    = $this->bybitService->placeOrder($symbol, $bybitSide, $sizeUsdt, $lev);
-                    $eventType = 'average_in';
+                    $sizeBefore = (float) ($position['size'] ?? 0);
+                    $sizeUsdt   = max(1.0, (float) ($d['average_size_usdt'] ?? 10.0));
+                    $lev        = max(1, (int) ($position['leverage'] ?? 1));
+                    $bybitSide  = strtoupper($side) === 'BUY' ? 'BUY' : 'SELL';
+                    $result     = $this->bybitService->placeOrder($symbol, $bybitSide, $sizeUsdt, $lev);
+                    $eventType  = 'average_in';
                     if ($result['ok'] ?? false) {
                         $alreadyAveraged[$symbol] = true;
+                        $guardResult = $this->executionGuard->verifyOpen($symbol, $side, $sizeBefore, $result);
                     }
                 } else {
                     $skipReason = 'already_averaged';
@@ -295,7 +307,14 @@ class BotTickCommand extends Command
             if (!empty($result['skipped'])) {
                 $statusTag = '<comment>[SKIP]</comment>';
             }
-            $io->writeln("  {$statusTag} {$symbol} {$side} → {$action}" . ($skipReason ? " ({$skipReason})" : ''));
+            $guardTag = '';
+            if ($guardResult !== null) {
+                $guardTag = $guardResult['mismatch'] ? ' <error>[MISMATCH]</error>' : ' <info>[verified]</info>';
+                if ($guardResult['mismatch']) {
+                    $io->writeln("        guard: " . $guardResult['message']);
+                }
+            }
+            $io->writeln("  {$statusTag} {$symbol} {$side} → {$action}" . ($skipReason ? " ({$skipReason})" : '') . $guardTag);
             if (!$ok && !empty($result['error'])) {
                 $io->writeln("        error: " . $result['error']);
             }
@@ -310,6 +329,8 @@ class BotTickCommand extends Command
                 'skip_reason'         => $skipReason,
                 'pnlAtDecision'       => $pnlAtDecision,
                 'realizedPnlEstimate' => $realizedEstimate,
+                'orderId'             => $result['result']['orderId'] ?? null,
+                'guard'               => $guardResult,
             ]);
 
             if ($eventType !== null) {

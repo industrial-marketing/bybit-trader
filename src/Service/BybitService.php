@@ -1045,6 +1045,86 @@ class BybitService
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // Execution Guard helpers
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Fetch a single position by symbol+side. Returns null if not found.
+     */
+    public function getPositionBySymbol(string $symbol, string $side): ?array
+    {
+        $settings = $this->settingsService->getBybitSettings();
+        if (empty($settings['api_key']) || empty($settings['api_secret'])) {
+            return null;
+        }
+
+        try {
+            $baseUrl  = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
+            $params   = ['category' => 'linear', 'symbol' => $symbol];
+            $response = $this->requestWithRetry('GET', $baseUrl . '/v5/position/list', [
+                'query'   => $params,
+                'headers' => $this->getAuthHeaders('GET', '/v5/position/list', $params, $settings),
+            ], 2);
+            $data = $response->toArray(false);
+            if (($data['retCode'] ?? -1) === 0 && isset($data['result']['list'])) {
+                $formatted = $this->formatPositions($data['result']['list']);
+                foreach ($formatted as $pos) {
+                    if (($pos['side'] ?? '') === $side) {
+                        return $pos;
+                    }
+                }
+            }
+            return null;
+        } catch (\Exception $e) {
+            $this->log('getPositionBySymbol Error: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Fetch a historical order by orderId to get fill details (cumExecQty, avgPrice, orderStatus).
+     * Uses /v5/order/history — works for filled/cancelled orders.
+     */
+    public function getOrderFromHistory(string $symbol, string $orderId): ?array
+    {
+        if ($orderId === '') {
+            return null;
+        }
+
+        $settings = $this->settingsService->getBybitSettings();
+        if (empty($settings['api_key']) || empty($settings['api_secret'])) {
+            return null;
+        }
+
+        try {
+            $baseUrl  = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
+            $params   = ['category' => 'linear', 'symbol' => $symbol, 'orderId' => $orderId];
+            $response = $this->requestWithRetry('GET', $baseUrl . '/v5/order/history', [
+                'query'   => $params,
+                'headers' => $this->getAuthHeaders('GET', '/v5/order/history', $params, $settings),
+            ], 2);
+            $data = $response->toArray(false);
+            if (($data['retCode'] ?? -1) === 0 && !empty($data['result']['list'])) {
+                $o = $data['result']['list'][0];
+                return [
+                    'orderId'      => $o['orderId']      ?? $orderId,
+                    'orderStatus'  => $o['orderStatus']  ?? 'Unknown',
+                    'qty'          => (float)($o['qty']          ?? 0),
+                    'cumExecQty'   => (float)($o['cumExecQty']   ?? 0),
+                    'avgPrice'     => (float)($o['avgPrice']     ?? 0),
+                    'leavesQty'    => (float)($o['leavesQty']    ?? 0),
+                    'cancelType'   => $o['cancelType']   ?? '',
+                    'rejectReason' => $o['rejectReason'] ?? '',
+                ];
+            }
+            return null;
+        } catch (\Exception $e) {
+            $this->log('getOrderFromHistory Error: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // Mock data (used when API keys are absent)
     // ═══════════════════════════════════════════════════════════════
 

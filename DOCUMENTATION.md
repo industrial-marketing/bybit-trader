@@ -63,6 +63,7 @@ Symfony Router
             ├── RiskGuardService      (kill-switch, loss limit, exposure, cooldown)
             ├── AlertService          (Telegram / webhook алерты)
             ├── BotMetricsService     (метрики LLM-решений, трасса "Why")
+            ├── ExecutionGuardService (post-check исполнения ордеров)
             ├── AtomicFileStorage     (flock + temp-rename, базовый I/O)
             └── LogSanitizer          (редактирование секретов в логах)
 ```
@@ -82,6 +83,7 @@ bybit_trader/
 │   │   └── SecurityController.php    ← /login, /logout
 │   └── Service/
 │       ├── AtomicFileStorage.php     ← flock + temp-rename, базовый слой I/O
+│       ├── ExecutionGuardService.php ← post-check исполнения: verifyClose/verifyOpen/verifyStopLoss
 │       ├── BybitService.php          ← Bybit API v5 (retry, time-sync, instrument cache)
 │       ├── ChatGPTService.php        ← LLM (OpenAI + DeepSeek, строгий контракт v3)
 │       ├── SettingsService.php       ← настройки (var/settings.json + env override)
@@ -188,6 +190,8 @@ bybit_trader/
 | `getOpenOrders(symbol)` | Открытые ордера |
 | `getTrades(limit)` | История исполнений |
 | `testConnection()` | Проверка + показывает сдвиг часов с Bybit |
+| `getPositionBySymbol(symbol, side)` | Одна позиция по символу+side. Используется в ExecutionGuardService |
+| `getOrderFromHistory(symbol, orderId)` | Детали ордера из `/v5/order/history` (cumExecQty, avgPrice, orderStatus) |
 
 **HTTP-слой надёжности (`requestWithRetry`):**
 - Ретраи с backoff (1s → 2s → 4s, 3 попытки) на сетевые ошибки и HTTP 5xx
@@ -263,6 +267,7 @@ bybit_trader/
 | `average_in` | Усреднение позиции |
 | `manual_close_full` | Ручное закрытие пользователем |
 | `position_lock` | Установка/снятие замка |
+| `execution_mismatch` | Фактическое состояние биржи не совпало с ожидаемым после ордера |
 
 **Ограничения:** 14 дней, максимум 1000 записей.
 
@@ -334,6 +339,30 @@ bybit_trader/
 **`getRecentDecisions(limit=100)`** — последние события с полным trace-данными для UI.
 
 **`getLastDecisionPerPosition()`** — последнее LLM-решение per `symbol|side` для колонки "Почему?" в таблице позиций.
+
+---
+
+### `ExecutionGuardService`
+
+Post-check верификатор: после каждого реально исполненного действия бота проверяет, что биржа пришла в ожидаемое состояние.
+
+**Механизм:** ждёт 2 секунды (рыночные ордера заполняются <1с), затем запрашивает актуальную позицию и историю ордера.
+
+| Метод | Проверяет |
+|---|---|
+| `verifyClose(symbol, side, sizeBefore, fraction, orderResult)` | Размер позиции уменьшился на ожидаемую долю. При CLOSE_FULL — позиция исчезла |
+| `verifyOpen(symbol, side, sizeBefore, orderResult)` | Размер позиции увеличился (open / average_in) |
+| `verifyStopLoss(symbol, side, expectedSL)` | Поле `stopLoss` позиции совпадает с entry-ценой (точность 0.5%) |
+
+**Возвращаемые поля** (всегда добавляются в payload события):
+- `ok`, `mismatch` — результат верификации
+- `requestedQty`, `executedQty` — запрошено vs фактически исполнено (из `/v5/order/history`)
+- `avgPrice` — средняя цена исполнения
+- `orderId`, `orderStatus` — данные ордера от Bybit
+- `sizeBefore`, `sizeAfter` — размер позиции до и после
+- `message` — человекочитаемый вердикт
+
+**При mismatch:** автоматически записывает событие `execution_mismatch` в историю бота + отправляет алерт через `AlertService::alertBybitError()`.
 
 ---
 
