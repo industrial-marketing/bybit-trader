@@ -752,15 +752,19 @@ class ApiController extends AbstractController
     #[Route('/settings', name: 'api_settings_update', methods: ['POST'])]
     public function updateSettings(Request $request): JsonResponse
     {
-        $data = json_decode($request->getContent(), true) ?? [];
+        try {
+            $data = json_decode($request->getContent(), true) ?? [];
 
-        if (isset($data['bybit']))    { $this->settingsService->updateBybitSettings($data['bybit']); }
-        if (isset($data['chatgpt']))  { $this->settingsService->updateChatGPTSettings($data['chatgpt']); }
-        if (isset($data['deepseek'])) { $this->settingsService->updateDeepseekSettings($data['deepseek']); }
-        if (isset($data['trading']))  { $this->settingsService->updateTradingSettings($data['trading']); }
-        if (isset($data['alerts']))   { $this->settingsService->updateAlertsSettings($data['alerts']); }
+            if (isset($data['bybit']))    { $this->settingsService->updateBybitSettings($data['bybit']); }
+            if (isset($data['chatgpt']))  { $this->settingsService->updateChatGPTSettings($data['chatgpt']); }
+            if (isset($data['deepseek'])) { $this->settingsService->updateDeepseekSettings($data['deepseek']); }
+            if (isset($data['trading']))  { $this->settingsService->updateTradingSettings($data['trading']); }
+            if (isset($data['alerts']))   { $this->settingsService->updateAlertsSettings($data['alerts']); }
 
-        return $this->json(['success' => true, 'settings' => $this->settingsService->getSettings()]);
+            return $this->json(['success' => true, 'settings' => $this->settingsService->getSettings()]);
+        } catch (\Throwable $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
     }
 
     // ── Connection tests ──────────────────────────────────────────

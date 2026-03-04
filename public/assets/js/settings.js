@@ -131,8 +131,9 @@ function loadSettings() {
                 $('#alerts-threshold').val(data.alerts.repeated_failure_threshold || 3);
             }
         })
-        .fail(function() {
-            showMessage('Ошибка загрузки настроек', 'error');
+        .fail(function(xhr) {
+            const msg = xhr.responseJSON?.error || xhr.responseText || xhr.statusText || 'HTTP ' + (xhr.status || '?');
+            showMessage('Ошибка загрузки настроек: ' + (typeof msg === 'string' ? String(msg).substring(0, 120) : String(msg)), 'error');
         });
 }
 
@@ -311,7 +312,10 @@ function saveAlertsSettings() {
     };
     $.ajax({ url: '/api/settings', method: 'POST', contentType: 'application/json', data: JSON.stringify(settings) })
         .done(function() { showMessage('Настройки алертов сохранены!', 'success'); })
-        .fail(function() { showMessage('Ошибка сохранения настроек алертов', 'error'); });
+        .fail(function(xhr) {
+            const msg = xhr.responseJSON?.error || xhr.responseText || xhr.statusText || 'HTTP ' + (xhr.status || '?');
+            showMessage('Ошибка сохранения настроек алертов: ' + (typeof msg === 'string' ? msg.substring(0, 150) : String(msg)), 'error');
+        });
 }
 
 function sendTestAlert() {

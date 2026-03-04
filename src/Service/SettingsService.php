@@ -81,8 +81,8 @@ class SettingsService
 
         // Перекрываем API-ключи переменными окружения (если заданы и не пустые)
         $this->applyEnvOverrides();
-
-        $this->saveSettings();
+        // Не вызываем saveSettings() здесь — иначе при каждом запросе файл перезаписывается,
+        // что может приводить к потере данных при некорректном JSON или гонках.
     }
 
     /**
@@ -213,7 +213,13 @@ class SettingsService
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
-        file_put_contents($settingsFile, json_encode($toSave, JSON_PRETTY_PRINT));
+        $json = json_encode($toSave, JSON_PRETTY_PRINT);
+        if ($json === false) {
+            throw new \RuntimeException('Ошибка сериализации настроек: ' . json_last_error_msg());
+        }
+        if (file_put_contents($settingsFile, $json) === false) {
+            throw new \RuntimeException('Не удалось записать var/settings.json. Проверьте права на каталог var/.');
+        }
     }
 
     /**
