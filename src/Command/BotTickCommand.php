@@ -114,6 +114,11 @@ class BotTickCommand extends Command
 
         $io->writeln("<info>Run ID:</info> {$runId}  <info>Timeframe:</info> {$tfLabel}");
 
+        $varErr = $this->botHistory->checkVarWritable();
+        if ($varErr !== null) {
+            $io->warning("var/ not writable — history & metrics will not update: {$varErr}");
+        }
+
         try {
             $exitCode = $this->runTick(
                 $io, $runId, $botTimeframe, $historyCandles,

@@ -673,7 +673,42 @@ CSS построен на custom properties:
 * * * * * /usr/bin/curl -s -X POST http://localhost/api/bot/tick
 ```
 
-**Метрики дашборда и bot_history:** Используют `var/bot_history.json`. Путь строится от `kernel.project_dir`. Cron и web должны использовать одну копию приложения — иначе статистика не обновится при cron. Если cron запускает `php bin/console app:bot-tick` из другого каталога — задайте `VAR_DIR=/absolute/path/to/project/var` в `.env` или в окружении cron.
+Предпочтительно вызывать `POST /api/bot/tick` через curl — запрос обрабатывает веб‑сервер (www-data), права на `var/` совпадают.
+
+**Если cron запускает `php bin/console app:bot-tick` под другим пользователем (например palki):**
+
+Web‑сервер (www-data) и cron (palki) пишут в один и тот же каталог `var/`. Если права на `var/` заданы только для www-data, cron не сможет записывать `bot_history.json`, `bot_runs.json` и т.п. — статистика не обновится, хотя тик выполнится.
+
+**Варианты решения:**
+
+1. **Запускать cron от www-data** (самый простой путь):
+   ```bash
+   * * * * * www-data cd /path/to/bybit_trader && php bin/console app:bot-tick
+   ```
+   Или через `runuser`:
+   ```bash
+   * * * * * runuser -u www-data -- bash -c 'cd /path/to/bybit_trader && php bin/console app:bot-tick'
+   ```
+
+2. **Общие права на `var/` для www-data и palki**:
+   ```bash
+   sudo chown -R www-data:www-data /path/to/bybit_trader/var
+   sudo chmod -R 775 /path/to/bybit_trader/var
+   sudo usermod -aG www-data palki
+   # Перелогинься в palki, чтобы группа применилась
+   ```
+
+3. **Отдельный каталог через VAR_DIR** (если `var/` в проекте менять нельзя):
+   ```bash
+   sudo mkdir -p /var/lib/bybit_trader
+   sudo chown www-data:palki /var/lib/bybit_trader
+   sudo chmod 775 /var/lib/bybit_trader
+   ```
+   В `.env` или в crontab:
+   ```
+   VAR_DIR=/var/lib/bybit_trader
+   ```
+   И web, и cron должны видеть этот `VAR_DIR` и использовать его для всех JSON в `var/`.
 
 ### Алгоритм тика
 

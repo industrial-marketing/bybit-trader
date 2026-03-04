@@ -28,6 +28,30 @@ class BotHistoryService
     }
 
     /**
+     * Check if var dir is writable (for cron vs www-data permission diagnostics).
+     * Returns null if OK, or an error message.
+     */
+    public function checkVarWritable(): ?string
+    {
+        $dir = dirname($this->filePath);
+        if (!is_dir($dir)) {
+            return "var dir does not exist: {$dir}";
+        }
+        if (!is_writable($dir)) {
+            $user = (function_exists('posix_getpwuid') && function_exists('posix_geteuid'))
+                ? (posix_getpwuid(posix_geteuid())['name'] ?? '?')
+                : get_current_user();
+            return "var dir not writable (current user: {$user}): {$dir}";
+        }
+        $testFile = $dir . '/.writetest_' . getmypid();
+        if (@file_put_contents($testFile, '1') === false) {
+            return "cannot write to var: {$dir}";
+        }
+        @unlink($testFile);
+        return null;
+    }
+
+    /**
      * Append an event to the history (atomic read-modify-write under flock).
      */
     public function log(string $type, array $payload): void
