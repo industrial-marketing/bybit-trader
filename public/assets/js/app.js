@@ -344,6 +344,21 @@ function loadStatistics() {
             $('#stat-max-drawdown').removeClass('profit loss').addClass(maxDrawdown >= 0 ? 'profit' : 'loss');
             
             $('#stat-profit-factor').text(data.profitFactor.toFixed(2));
+
+            // Diagnostics: source, note
+            var diag = $('#stat-diagnostics');
+            var parts = [];
+            if (data.source && data.source !== 'empty') {
+                parts.push('Источник: ' + data.source);
+                if (data.closedTradesCount != null) parts.push('closed=' + data.closedTradesCount);
+                if (data.tradesCount != null && data.tradesCount > 0) parts.push('trades=' + data.tradesCount);
+                if (data.bybitRetCode != null && data.bybitRetCode !== 0) {
+                    parts.push('retCode=' + data.bybitRetCode + (data.bybitRetMsg ? ' ' + data.bybitRetMsg : ''));
+                }
+            }
+            if (data.note) parts.push(data.note);
+            if (parts.length > 0) diag.html(parts.join(' | ')).show();
+            else diag.hide();
         })
         .fail(function() {
             console.error('Ошибка загрузки статистики');

@@ -107,7 +107,7 @@ class ApiController extends AbstractController
     #[Route('/closed-trades', name: 'api_closed_trades', methods: ['GET'])]
     public function getClosedTrades(Request $request): JsonResponse
     {
-        return $this->json($this->bybitService->getClosedTrades((int)($request->query->get('limit') ?? 100)));
+        return $this->json($this->bybitService->getClosedTrades((int)($request->query->get('limit') ?? 200)));
     }
 
     #[Route('/market/top', name: 'api_market_top', methods: ['GET'])]

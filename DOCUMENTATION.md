@@ -188,7 +188,8 @@ bybit_trader/
 | `getTopMarkets(limit, category)` | Топ монет по обороту. Дедупликация: предпочитает `*PERP`. Фильтрует dated-контракты |
 | `getKlineHistory(symbol, intervalMinutes, limit, maxPricePoints)` | Исторические свечи. Использует канонический `*USDT`-символ |
 | `getBalance()` | Баланс кошелька (USDT available + wallet balance) |
-| `getStatistics()` | Статистика: totalTrades, winRate, totalProfit, drawdown |
+| `getStatistics()` | Статистика: totalTrades, winRate, totalProfit, drawdown. Использует closed-pnl → execution/list. Диагностика: source, note |
+| `getClosedPnl(limit)` | `/v5/position/closed-pnl` (category=linear). Pagination до 200 записей |
 | `placeOrder(symbol, side, positionSizeUSDT, leverage)` | Открытие позиции: setLeverage → switchIsolated → createOrder. Логирует параметры перед отправкой |
 | `closePositionMarket(symbol, side, fraction)` | Закрытие (полное или частичное). Пропускает если qty < minOrderQty |
 | `setBreakevenStopLoss(symbol, side, entryPrice)` | Перенос стопа в безубыток |
@@ -895,7 +896,13 @@ vendor/          ← зависимости Composer
 **Testnet:**
 - `BTCUSDT` на testnet — ненастоящие цены; `BTCPERP` корректнее
 - `liqPrice` пустой для UTA-аккаунтов
-- `getClosedTrades` может возвращать пустой массив → фоллбэк на `getTrades`
+- Bybit testnet часто не возвращает closed PnL (пустой список) → статистика берётся из execution/list; при пустоте показывается: «Statistics not available on testnet...»
+
+**Статистика (источники данных):**
+- Приоритет: `closed-pnl` (до 200) → `execution/list` filtered (200) → `execution/list` all (500)
+- Все запросы: `category=linear`, `settleCoin=USDT`
+- `/api/statistics` возвращает диагностику: `source` (closedPnl|closedTrades|trades|empty), `closedTradesCount`, `tradesCount`, `bybitRetCode`, `bybitRetMsg`, `note`
+- В логи пишутся raw JSON первых 1–2 ответов (closed-pnl, execution/list, position/list, wallet-balance) для отладки
 
 **LLM:**
 - При невалидном JSON или нарушении контракта → автоматически `DO_NOTHING` + алерт
@@ -916,3 +923,4 @@ vendor/          ← зависимости Composer
 - Slippage: half-spread из bid1/ask1. Funding: rate × notional × horizon.
 - Min-edge check: закрытие блокируется, если PnL < (fees+slippage+funding) × `min_edge_multiplier`.
 - `totalFees` в `/api/statistics` — сумма `execFee` по execution list (если Bybit возвращает).
+- UI показывает блок «Источник» под статистикой: source, closed/trades count, retCode при ошибке, note (например, «Statistics not available on testnet»).

@@ -339,6 +339,7 @@ class BybitService
             ]);
 
             $data = $response->toArray(false);
+            $this->logRawIfFirst('position/list', $data);
             if (isset($data['retCode']) && $data['retCode'] === 0 && isset($data['result']['list'])) {
                 return $this->formatPositions($data['result']['list'], (int)(microtime(true) * 1000));
             }
@@ -363,7 +364,7 @@ class BybitService
         }
     }
 
-    public function getTrades(int $limit = 100): array
+    public function getTrades(int $limit = 500): array
     {
         $settings = $this->settingsService->getBybitSettings();
 
@@ -373,12 +374,14 @@ class BybitService
 
         try {
             $baseUrl  = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
-            $params   = ['category' => 'linear', 'settleCoin' => 'USDT', 'limit' => $limit];
+            $params   = ['category' => 'linear', 'settleCoin' => 'USDT', 'limit' => min($limit, 500)];
             $response = $this->requestWithRetry('GET', $baseUrl . '/v5/execution/list', [
                 'query'   => $params,
                 'headers' => $this->getAuthHeaders('GET', '/v5/execution/list', $params, $settings),
             ]);
             $data = $response->toArray(false);
+            $this->logRawIfFirst('execution/list', $data);
+
             if (($data['retCode'] ?? -1) === 0 && isset($data['result']['list'])) {
                 return $this->formatTrades($data['result']['list']);
             }
@@ -468,6 +471,7 @@ class BybitService
                 'headers' => $this->getAuthHeaders('GET', '/v5/account/wallet-balance', $params, $settings),
             ]);
             $data = $response->toArray(false);
+            $this->logRawIfFirst('wallet-balance', $data);
 
             if (($data['retCode'] ?? -1) !== 0 || empty($data['result']['list'][0])) {
                 return $empty;
@@ -689,7 +693,75 @@ class BybitService
         }
     }
 
-    public function getClosedTrades(int $limit = 100): array
+    /** @var array<string,int> */
+    private static array $statsDiagLogCount = [];
+
+    /**
+     * Log first 1–2 raw Bybit responses for diagnostics (secrets redacted).
+     */
+    private function logRawIfFirst(string $endpoint, array $data): void
+    {
+        $key = $endpoint;
+        $n   = self::$statsDiagLogCount[$key] ?? 0;
+        if ($n >= 2) {
+            return;
+        }
+        self::$statsDiagLogCount[$key] = $n + 1;
+        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        $sanitized = LogSanitizer::sanitize($json ?? '', $this->settingsService);
+        $this->log("Stats diag [{$endpoint}] response #" . ($n + 1) . ": " . mb_substr($sanitized, 0, 2000));
+    }
+
+    /**
+     * Fetch closed PnL via /v5/position/closed-pnl (category=linear). Limit max 100 per request.
+     */
+    public function getClosedPnl(int $limit = 100): array
+    {
+        $settings = $this->settingsService->getBybitSettings();
+        if (empty($settings['api_key']) || empty($settings['api_secret'])) {
+            return [];
+        }
+
+        try {
+            $baseUrl = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
+            $allList = [];
+            $cursor  = null;
+            $retCode = 0;
+            $retMsg  = 'OK';
+
+            for ($page = 0; $page < 3 && count($allList) < $limit; $page++) {
+                $params = ['category' => 'linear', 'limit' => min(100, $limit - count($allList))];
+                if ($cursor !== null) {
+                    $params['cursor'] = $cursor;
+                }
+                $response = $this->requestWithRetry('GET', $baseUrl . '/v5/position/closed-pnl', [
+                    'query'   => $params,
+                    'headers' => $this->getAuthHeaders('GET', '/v5/position/closed-pnl', $params, $settings),
+                ]);
+                $data = $response->toArray(false);
+                if ($page === 0) {
+                    $this->logRawIfFirst('closed-pnl', $data);
+                }
+
+                $retCode = (int)($data['retCode'] ?? -1);
+                if ($retCode !== 0) {
+                    return ['retCode' => $retCode, 'retMsg' => $data['retMsg'] ?? '', 'list' => []];
+                }
+                $list = $data['result']['list'] ?? [];
+                $allList = array_merge($allList, $list);
+                $cursor  = $data['result']['nextPageCursor'] ?? null;
+                if (empty($cursor) || count($list) < 100) {
+                    break;
+                }
+            }
+            return ['retCode' => 0, 'retMsg' => $retMsg, 'list' => $allList];
+        } catch (\Exception $e) {
+            $this->log('getClosedPnl Error: ' . $e->getMessage());
+            return ['retCode' => -1, 'retMsg' => $e->getMessage(), 'list' => []];
+        }
+    }
+
+    public function getClosedTrades(int $limit = 200): array
     {
         $settings = $this->settingsService->getBybitSettings();
 
@@ -699,12 +771,14 @@ class BybitService
 
         try {
             $baseUrl  = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
-            $params   = ['category' => 'linear', 'settleCoin' => 'USDT', 'limit' => $limit];
+            $params   = ['category' => 'linear', 'settleCoin' => 'USDT', 'limit' => min($limit, 200)];
             $response = $this->requestWithRetry('GET', $baseUrl . '/v5/execution/list', [
                 'query'   => $params,
                 'headers' => $this->getAuthHeaders('GET', '/v5/execution/list', $params, $settings),
             ]);
             $data = $response->toArray(false);
+            $this->logRawIfFirst('execution/list', $data);
+
             if (($data['retCode'] ?? -1) === 0 && isset($data['result']['list'])) {
                 $closed = array_filter(
                     $data['result']['list'],
@@ -721,17 +795,73 @@ class BybitService
 
     public function getStatistics(): array
     {
-        $trades = $this->getClosedTrades(1000);
-        if (empty($trades)) {
-            $trades = $this->getTrades(1000);
+        $settings   = $this->settingsService->getBybitSettings();
+        $isTestnet   = ($settings['base_url'] ?? '') !== 'https://api.bybit.com';
+        $baseResult  = [
+            'totalTrades'    => 0, 'winRate' => 0.0, 'totalProfit' => 0.0, 'totalFees' => 0.0,
+            'averageProfit'  => 0.0, 'maxDrawdown' => 0.0, 'profitFactor' => 0.0,
+            'winningTrades'  => 0, 'losingTrades' => 0,
+            'source'         => 'empty',
+            'closedTradesCount' => 0,
+            'tradesCount'    => 0,
+            'bybitRetCode'   => null,
+            'bybitRetMsg'    => null,
+            'note'           => null,
+        ];
+
+        if (empty($settings['api_key']) || empty($settings['api_secret'])) {
+            $baseResult['note'] = 'API keys not configured';
+            return $baseResult;
         }
 
-        if (empty($trades)) {
-            return [
-                'totalTrades' => 0, 'winRate' => 0.0, 'totalProfit' => 0.0, 'totalFees' => 0.0,
-                'averageProfit' => 0.0, 'maxDrawdown' => 0.0, 'profitFactor' => 0.0,
-                'winningTrades' => 0, 'losingTrades' => 0,
-            ];
+        // 1) Try closed-pnl (category=linear, native PnL endpoint, up to 200 via pagination)
+        $closedPnlRaw = $this->getClosedPnl(200);
+        $closedPnlList = $closedPnlRaw['list'] ?? [];
+        $closedTradesCount = count($closedPnlList);
+
+        if ($closedTradesCount > 0) {
+            $trades = $this->formatClosedPnlTrades($closedPnlList);
+            $baseResult['source'] = 'closedPnl';
+            $baseResult['closedTradesCount'] = $closedTradesCount;
+            $baseResult['bybitRetCode'] = $closedPnlRaw['retCode'] ?? null;
+            $baseResult['bybitRetMsg'] = ($closedPnlRaw['retCode'] ?? 0) !== 0 ? ($closedPnlRaw['retMsg'] ?? '') : null;
+        } else {
+            $bybitRetCode = $closedPnlRaw['retCode'] ?? -1;
+            $bybitRetMsg  = $closedPnlRaw['retMsg'] ?? '';
+
+            // 2) Fallback: execution/list filtered by closedPnl (limit 200)
+            $execClosed = $this->getClosedTrades(200);
+            $closedTradesCount = count($execClosed);
+
+            if ($closedTradesCount > 0) {
+                $trades = $execClosed;
+                $baseResult['source'] = 'closedTrades';
+                $baseResult['closedTradesCount'] = $closedTradesCount;
+            } else {
+                // 3) Fallback: execution/list all (limit 500), filter by closedPnl
+                $allTrades = $this->getTrades(500);
+                $tradesCount = count($allTrades);
+                $trades = array_filter($allTrades, fn($t) => isset($t['closedPnl']) && $t['closedPnl'] !== null);
+
+                if (!empty($trades)) {
+                    $baseResult['source'] = 'trades';
+                    $baseResult['closedTradesCount'] = count($trades);
+                    $baseResult['tradesCount'] = $tradesCount;
+                } else {
+                    $baseResult['closedTradesCount'] = 0;
+                    $baseResult['tradesCount'] = $tradesCount;
+                    if ($bybitRetCode !== 0) {
+                        $baseResult['bybitRetCode'] = $bybitRetCode;
+                        $baseResult['bybitRetMsg'] = $bybitRetMsg;
+                        $baseResult['note'] = "Bybit retCode={$bybitRetCode}: " . mb_substr($bybitRetMsg, 0, 80);
+                    } elseif ($isTestnet) {
+                        $baseResult['note'] = 'Statistics not available on testnet (Bybit returns empty closed PnL). Switch to mainnet or place a few test trades.';
+                    } else {
+                        $baseResult['note'] = 'No closed PnL data (history empty, wrong category, or UTA account)';
+                    }
+                    return $baseResult;
+                }
+            }
         }
 
         $closedTrades  = array_filter($trades, fn($t) => isset($t['closedPnl']) && $t['closedPnl'] !== null);
@@ -749,7 +879,7 @@ class BybitService
         $loseSum     = abs(array_sum(array_map(fn($t) => (float)($t['closedPnl'] ?? 0), $losingTrades)));
         $profitFactor= $loseSum > 0 ? $winSum / $loseSum : ($winSum > 0 ? 999 : 0);
 
-        return [
+        return array_merge($baseResult, [
             'totalTrades'    => $totalTrades,
             'winRate'        => round($winRate, 2),
             'totalProfit'    => round($totalProfit, 2),
@@ -759,7 +889,28 @@ class BybitService
             'profitFactor'   => round($profitFactor, 2),
             'winningTrades'  => count($winningTrades),
             'losingTrades'   => count($losingTrades),
-        ];
+        ]);
+    }
+
+    /** Format closed-pnl API response to same structure as formatTrades. */
+    private function formatClosedPnlTrades(array $list): array
+    {
+        return array_map(fn($t): array => [
+            'id'        => $t['orderId'] ?? '',
+            'symbol'    => $t['symbol'] ?? '',
+            'side'      => $t['side'] ?? '',
+            'price'     => $t['avgExitPrice'] ?? $t['orderPrice'] ?? '0',
+            'quantity'  => $t['closedSize'] ?? $t['qty'] ?? '0',
+            'closedPnl' => $t['closedPnl'] ?? null,
+            'execFee'   => isset($t['openFee'], $t['closeFee'])
+                ? (float)($t['openFee'] ?? 0) + (float)($t['closeFee'] ?? 0)
+                : null,
+            'status'    => 'Trade',
+            'openedAt'  => isset($t['createdTime'])
+                ? date('Y-m-d H:i:s', (int)$t['createdTime'] / 1000)
+                : date('Y-m-d H:i:s'),
+            'orderType' => $t['orderType'] ?? '',
+        ], $list);
     }
 
     // ═══════════════════════════════════════════════════════════════
