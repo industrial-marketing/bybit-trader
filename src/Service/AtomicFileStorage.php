@@ -9,14 +9,16 @@ namespace App\Service;
  * (concurrent cron runs, manual triggers) read/write the same state files.
  *
  * Pattern:
- *   - Reads  → LOCK_SH on a companion .lock file, then file_get_contents.
+ *   - Reads  → Lock-free. Write uses .tmp + rename (atomic), so reads never see partial data.
  *   - Writes → LOCK_EX on .lock file, write to .tmp.PID, then rename over target.
  *   - Update → LOCK_EX, re-read inside lock, apply callback, write atomically.
+ *
+ * Lock-free reads avoid blocking cron writes when the dashboard polls frequently.
  */
 class AtomicFileStorage
 {
     /**
-     * Read a JSON file under a shared lock.
+     * Read a JSON file (lock-free). Safe because writes use atomic rename.
      * Returns decoded array or $default on missing / invalid file.
      */
     public static function read(string $path, array $default = []): array
@@ -24,22 +26,8 @@ class AtomicFileStorage
         if (!file_exists($path)) {
             return $default;
         }
-
-        $lockFh = self::openLock($path);
-        if ($lockFh === false) {
-            // Fallback: plain read (better than crashing)
-            $raw = @file_get_contents($path);
-            return $raw !== false ? (json_decode($raw, true) ?? $default) : $default;
-        }
-
-        try {
-            flock($lockFh, LOCK_SH);
-            $raw = @file_get_contents($path);
-            return $raw !== false ? (json_decode($raw, true) ?? $default) : $default;
-        } finally {
-            flock($lockFh, LOCK_UN);
-            fclose($lockFh);
-        }
+        $raw = @file_get_contents($path);
+        return $raw !== false ? (json_decode($raw, true) ?? $default) : $default;
     }
 
     /**
