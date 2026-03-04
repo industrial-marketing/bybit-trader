@@ -11,6 +11,7 @@ use App\Service\ChatGPTService;
 use App\Service\CircuitBreakerService;
 use App\Service\CostEstimatorService;
 use App\Service\ExecutionGuardService;
+use App\Service\PnlStatisticsService;
 use App\Service\StrategyEngineService;
 use App\Service\StrategyProfileService;
 use App\Service\PendingActionsService;
@@ -41,6 +42,7 @@ class ApiController extends AbstractController
         private readonly CostEstimatorService  $costEstimator,
         private readonly StrategyEngineService  $strategyEngine,
         private readonly StrategyProfileService $strategyProfile,
+        private readonly PnlStatisticsService  $pnlStats,
     ) {}
 
     // ── Positions / orders / trades ───────────────────────────────
@@ -73,6 +75,18 @@ class ApiController extends AbstractController
     public function getStatistics(): JsonResponse
     {
         return $this->json($this->bybitService->getStatistics());
+    }
+
+    #[Route('/statistics/pnl', name: 'api_statistics_pnl', methods: ['GET'])]
+    public function getPnlStatistics(Request $request): JsonResponse
+    {
+        $days    = (int)($request->query->get('days') ?? 30);
+        $groupBy = $request->query->get('groupBy') ?? 'day';
+        $symbol  = $request->query->get('symbol');
+        $from    = $request->query->get('from');
+        $to      = $request->query->get('to');
+
+        return $this->json($this->pnlStats->getPnlSeries($days, $groupBy, $symbol ?: null, $from ?: null, $to ?: null));
     }
 
     #[Route('/balance', name: 'api_balance', methods: ['GET'])]
@@ -780,7 +794,8 @@ class ApiController extends AbstractController
             if (isset($data['chatgpt']))  { $this->settingsService->updateChatGPTSettings($data['chatgpt']); }
             if (isset($data['deepseek'])) { $this->settingsService->updateDeepseekSettings($data['deepseek']); }
             if (isset($data['trading']))  { $this->settingsService->updateTradingSettings($data['trading']); }
-            if (isset($data['alerts']))   { $this->settingsService->updateAlertsSettings($data['alerts']); }
+            if (isset($data['alerts']))     { $this->settingsService->updateAlertsSettings($data['alerts']); }
+            if (isset($data['strategies'])) { $this->settingsService->updateStrategiesSettings($data['strategies']); }
 
             return $this->json(['success' => true, 'settings' => $this->settingsService->getSettings()]);
         } catch (\Throwable $e) {

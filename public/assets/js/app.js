@@ -54,6 +54,8 @@ $(document).ready(function() {
         loadProposals();
     });
 
+    $('#pnl-refresh-btn').on('click', loadPnlCharts);
+
     // Модалка открытия сделки
     $('#modal-cancel-btn, #open-order-modal .modal-backdrop').on('click', function() {
         $('#open-order-modal').hide();
@@ -130,6 +132,7 @@ function loadDashboard() {
     loadBotHistory();
     loadBotMetrics();
     loadBotDecisions();
+    loadPnlCharts();
 }
 
 function renderWhyBadge(decision) {
@@ -363,6 +366,60 @@ function loadStatistics() {
         .fail(function() {
             console.error('Ошибка загрузки статистики');
         });
+}
+
+var pnlLineChart = null;
+var pnlBarChart = null;
+
+function loadPnlCharts() {
+    var days = parseInt($('#pnl-period').val() || '30', 10);
+    var symbol = $('#pnl-symbol').val() || '';
+    $.get('/api/statistics/pnl', { days: days, symbol: symbol || undefined })
+        .done(function(data) {
+            if (data.bySymbol && data.bySymbol.length > 0) {
+                var $sel = $('#pnl-symbol');
+                $sel.find('option:not([value=""])').remove();
+                data.bySymbol.forEach(function(s){ $sel.append($('<option>').val(s.symbol).text(s.symbol)); });
+            }
+            renderPnlLineChart(data.series || []);
+            renderPnlBarChart(data.bySymbol || []);
+        })
+        .fail(function() { console.error('PnL charts load failed'); });
+}
+
+function renderPnlLineChart(series) {
+    var ctx = document.getElementById('pnl-line-chart');
+    if (!ctx) return;
+    if (pnlLineChart) pnlLineChart.destroy();
+    var labels = series.map(function(s){ return s.date; });
+    var values = series.map(function(s){ return s.pnl_usdt; });
+    var colors = values.map(function(v){ return v >= 0 ? 'rgba(76,175,80,0.8)' : 'rgba(244,67,54,0.8)'; });
+    pnlLineChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{ label: 'Daily PnL (USDT)', data: values, borderColor: 'rgb(76,175,80)', backgroundColor: 'rgba(76,175,80,0.1)', fill: true }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+}
+
+function renderPnlBarChart(bySymbol) {
+    var ctx = document.getElementById('pnl-bar-chart');
+    if (!ctx) return;
+    if (pnlBarChart) pnlBarChart.destroy();
+    var top10 = bySymbol.slice(0, 10);
+    var labels = top10.map(function(s){ return s.symbol; });
+    var values = top10.map(function(s){ return s.pnl_usdt; });
+    var colors = values.map(function(v){ return v >= 0 ? 'rgba(76,175,80,0.8)' : 'rgba(244,67,54,0.8)'; });
+    pnlBarChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{ label: 'PnL by Symbol', data: values, backgroundColor: colors }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
 }
 
 function loadBalance() {

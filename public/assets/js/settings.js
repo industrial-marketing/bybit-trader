@@ -45,6 +45,11 @@ $(document).ready(function() {
         saveAlertsSettings();
     });
 
+    $('#strategies-settings-form').on('submit', function(e) {
+        e.preventDefault();
+        saveStrategiesSettings();
+    });
+
     $('#test-alert-btn').on('click', function() {
         sendTestAlert();
     });
@@ -116,6 +121,24 @@ function loadSettings() {
                 $('#cb-llm-threshold').val(data.trading.cb_llm_threshold || 3);
                 $('#cb-llm-invalid-threshold').val(data.trading.cb_llm_invalid_threshold || 5);
                 $('#cb-cooldown').val(data.trading.cb_cooldown_minutes || 30);
+            }
+
+            // Strategies settings
+            if (data.strategies) {
+                $('#strategies-enabled').prop('checked', data.strategies.enabled !== false);
+                var po = data.strategies.profile_overrides || {};
+                ['1','5','15','60','240','1440'].forEach(function(k){ $('#strat-prof-'+k).val(po[k] || ''); });
+                var ind = data.strategies.indicators || {};
+                $('#strat-ema-enabled').prop('checked', (ind.ema && ind.ema.enabled !== false) || true);
+                $('#strat-rsi-enabled').prop('checked', (ind.rsi14 && ind.rsi14.enabled !== false) || true);
+                $('#strat-atr-enabled').prop('checked', (ind.atr && ind.atr.enabled !== false) || true);
+                var chop = ind.chop || {};
+                $('#strat-chop-enabled').prop('checked', chop.enabled !== false);
+                $('#strat-chop-threshold').val(chop.threshold ?? 0.65);
+                var rules = data.strategies.rules || {};
+                $('#strat-allow-avg').prop('checked', rules.allow_average_in !== false);
+                $('#strat-block-avg-chop').prop('checked', rules.average_in_block_in_chop !== false);
+                $('#strat-prefer-trend').prop('checked', rules.prefer_be_in_trend !== false);
             }
 
             // Alerts settings
@@ -294,6 +317,34 @@ function testChatGPTConnection() {
         .fail(function() {
             showMessage('Ошибка запроса к /api/test/chatgpt', 'error');
         });
+}
+
+function saveStrategiesSettings() {
+    var po = {};
+    ['1','5','15','60','240','1440'].forEach(function(k){
+        var v = $('#strat-prof-'+k).val();
+        if (v) po[k] = v.trim();
+    });
+    var settings = {
+        strategies: {
+            enabled: $('#strategies-enabled').is(':checked'),
+            profile_overrides: po,
+            indicators: {
+                ema:   { enabled: $('#strat-ema-enabled').is(':checked'), fast: 20, slow: 50 },
+                rsi14: { enabled: $('#strat-rsi-enabled').is(':checked'), overbought: 70, oversold: 30 },
+                atr:   { enabled: $('#strat-atr-enabled').is(':checked'), period: 14 },
+                chop:  { enabled: $('#strat-chop-enabled').is(':checked'), threshold: parseFloat($('#strat-chop-threshold').val()) || 0.65 }
+            },
+            rules: {
+                allow_average_in: $('#strat-allow-avg').is(':checked'),
+                average_in_block_in_chop: $('#strat-block-avg-chop').is(':checked'),
+                prefer_be_in_trend: $('#strat-prefer-trend').is(':checked')
+            }
+        }
+    };
+    $.ajax({ url: '/api/settings', method: 'POST', contentType: 'application/json', data: JSON.stringify(settings) })
+        .done(function() { showMessage('Strategy Signals сохранены!', 'success'); })
+        .fail(function(xhr) { showMessage('Ошибка: ' + (xhr.responseJSON?.error || xhr.statusText || '?'), 'error'); });
 }
 
 function saveAlertsSettings() {

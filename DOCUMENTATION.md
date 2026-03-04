@@ -258,10 +258,17 @@ bybit_trader/
 | Сервис | Описание |
 |--------|----------|
 | `IndicatorService` | RSI, EMA, ATR%, trendStrength, chopScore |
-| `StrategyEngineService` | buildSignals(symbol, timeframe, kline) → profile, regime, signals, rules_hint |
-| `StrategyProfileService` | selectProfile(timeframe, signals) → scalp \| intraday \| swing \| chop |
+| `StrategyEngineService` | buildSignals(symbol, timeframe, kline) → regime, signals, rules_hint. Читает settings['strategies'] |
+| `StrategyProfileService` | selectProfile(timeframe, signals) → scalp \| intraday \| swing \| chop. Использует profile_overrides |
 
-**Профили:** scalp (1–5m), intraday (15–60m), swing (4h–D), chop (при chop_score > 0.65).
+**Профили:** scalp (1–5m), intraday (15–60m), swing (4h–D), chop (при chop_score ≥ threshold из settings).
+
+**Настройки (`strategies` в settings.json):**
+- `enabled` — вкл/выкл StrategySignals
+- `profile_overrides` — маппинг таймфрейма (1,5,15,60,240,1440) → профиль
+- `indicators` — ema (fast, slow), rsi14 (overbought, oversold), atr (period), chop (threshold)
+- `rules` — allow_average_in, average_in_block_in_chop, prefer_be_in_trend
+- `weights` — trend, mean_reversion, breakout, volatility_penalty (для расширения)
 
 **Формат StrategySignals:**
 - `signals`: ema (fast/slow/state/slope), rsi14, atr_pct, breakout, meanReversion, spread_pct
@@ -274,11 +281,23 @@ bybit_trader/
 
 ---
 
+### `PnlStatisticsService`
+
+Агрегирует PnL из closed-pnl / execution list для графиков.
+
+| Метод | Описание |
+|-------|----------|
+| `getPnlSeries(days, groupBy, symbol, from, to)` | series по дням, bySymbol, totals |
+
+Источник: closed-pnl (до 300), fallback — execution list. Фильтрация по датам.
+
+---
+
 ### `SettingsService`
 
 Хранит все настройки в `var/settings.json`. **API-ключи берутся приоритетно из `.env.local`** и никогда не сохраняются в JSON.
 
-**Секции настроек:** `bybit`, `chatgpt`, `deepseek`, `trading`, `alerts` (см. раздел 8).
+**Секции настроек:** `bybit`, `chatgpt`, `deepseek`, `trading`, `alerts`, `strategies` (см. раздел 8).
 
 ---
 
@@ -306,6 +325,7 @@ bybit_trader/
 | `execution_mismatch` | Фактическое состояние биржи не совпало с ожидаемым после ордера |
 | `stale_data_skip` | Тик пропущен — данные позиций старее `max_data_age_sec` |
 | `circuit_breaker_reset` | Ручной сброс Circuit Breaker через API/UI (`type`, `reset_by`) |
+| `strategy_signals` | Профили и regime_summary, переданные в LLM (для canary/отладки) |
 
 **Ограничения:** 14 дней, максимум 1000 записей.
 
@@ -513,7 +533,7 @@ CSS построен на custom properties:
 
 | Функция | Описание |
 |---|---|
-| `loadDashboard()` | Загружает все секции: баланс, статистику, позиции, ордера, сделки, историю бота, метрики, решения |
+| `loadDashboard()` | Загружает все секции: баланс, статистику, позиции, ордера, сделки, историю бота, метрики, решения, PnL charts |
 | `loadPositions()` | Таблица позиций с side-бейджами, иконочными кнопками lock/close, колонкой "Почему?" |
 | `runBotTick()` | Запускает `/api/bot/tick`, показывает `.bot-alert` в `#bot-status-message` |
 | `renderWhyBadge(decision)` | Бейдж в колонке "Почему?": action, confidence, risk, override |
@@ -525,9 +545,14 @@ CSS построен на custom properties:
 | `loadTrades()` | История сделок |
 | `loadBotHistory()` | История событий бота (50 событий, 7 дней) |
 | `switchDashboardPage(page)` | Переключение страниц по `data-page` атрибуту |
+| `loadPnlCharts()` | GET /api/statistics/pnl, рендер line (daily PnL) и bar (by symbol) через Chart.js |
+| `renderPnlLineChart(series)` | Line chart: Daily PnL USDT |
+| `renderPnlBarChart(bySymbol)` | Bar chart: PnL по символам (Top 10) |
+
+**Chart.js** 4.4.0 (CDN) — лёгкая библиотека для line/bar. Фильтры: Period 7/30/90, Symbol (All + топ из bySymbol).
 
 ### `public/assets/js/settings.js`
-- Загрузка/сохранение: Bybit, ChatGPT, DeepSeek, Trading, Risk Guards, Alerts
+- Загрузка/сохранение: Bybit, ChatGPT, DeepSeek, Trading, Risk Guards, Strategy Signals, Alerts
 - Тест-алерт через `POST /api/alerts/test`
 - Обработчик 401 (редирект на `/login`)
 
@@ -544,6 +569,7 @@ CSS построен на custom properties:
 | GET | `/api/trades` | История исполнений (query: `limit`) |
 | GET | `/api/closed-trades` | Закрытые позиции (query: `limit`) |
 | GET | `/api/statistics` | Торговая статистика |
+| GET | `/api/statistics/pnl` | PnL агрегаты: series (по дням), bySymbol. Query: days, groupBy, symbol, from, to |
 | GET | `/api/balance` | Баланс кошелька |
 | GET | `/api/market/top` | Топ монет (query: `limit`, `category`) |
 | GET | `/api/market-data/{symbol}` | Данные по символу |
@@ -564,7 +590,7 @@ CSS построен на custom properties:
 | POST | `/api/position/close` | Ручное закрытие позиции |
 | POST | `/api/position/lock` | Установка/снятие замка |
 | GET | `/api/settings` | Получить все настройки |
-| POST | `/api/settings` | Обновить настройки |
+| POST | `/api/settings` | Обновить настройки. Body: `{ bybit?, chatgpt?, trading?, alerts?, strategies? }` |
 | GET | `/api/test/bybit` | Проверить подключение к Bybit |
 | GET | `/api/test/chatgpt` | Проверить подключение к LLM |
 | POST | `/api/alerts/test` | Отправить тестовый алерт |
@@ -593,6 +619,15 @@ CSS построен на custom properties:
 | `auto_open_enabled` | Разрешить боту открывать новые сделки |
 | `bot_timeframe` | Таймфрейм решений: 1/5/15/30/60/240/1440 мин |
 | `bot_history_candles` | Свечей истории для LLM (5–60) |
+
+### Strategy Signals
+| Параметр | Описание |
+|----------|----------|
+| `enabled` | Включить StrategySignals (default: true) |
+| `profile_overrides` | {"1":"scalp","5":"scalp","15":"intraday","60":"intraday","240":"swing","1440":"swing"} |
+| `indicators` | ema (fast, slow), rsi14 (overbought, oversold), atr (period), chop (threshold) |
+| `rules` | allow_average_in, average_in_block_in_chop, prefer_be_in_trend |
+| `weights` | trend, mean_reversion, breakout, volatility_penalty (расширение) |
 
 ### Risk Guards
 | Параметр | Описание |

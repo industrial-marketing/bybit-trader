@@ -255,6 +255,49 @@
         </form>
     </div>
 
+    {# ── Strategy Signals ─────────────────────────────────────── #}
+    <div class="settings-section" style="border-color: rgba(99,102,241,0.3);">
+        <h3><i class="bi bi-graph-up-arrow" style="color:#6366f1"></i> Strategy Signals</h3>
+        <p class="section-desc">Индикаторы и профили для LLM. Параметры влияют на strategy blocks в промпте.</p>
+        <form id="strategies-settings-form">
+            <div class="form-group">
+                <input type="checkbox" id="strategies-enabled" name="enabled" checked>
+                <span><strong>Включить StrategySignals</strong></span>
+            </div>
+            <div class="form-group">
+                <label>Профили по таймфрейму (мин → профиль):</label>
+                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; max-width:400px;">
+                    <div><label class="small">1m</label><input type="text" id="strat-prof-1" placeholder="scalp"></div>
+                    <div><label class="small">5m</label><input type="text" id="strat-prof-5" placeholder="scalp"></div>
+                    <div><label class="small">15m</label><input type="text" id="strat-prof-15" placeholder="intraday"></div>
+                    <div><label class="small">60m</label><input type="text" id="strat-prof-60" placeholder="intraday"></div>
+                    <div><label class="small">240m</label><input type="text" id="strat-prof-240" placeholder="swing"></div>
+                    <div><label class="small">1440m</label><input type="text" id="strat-prof-1440" placeholder="swing"></div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Индикаторы:</label>
+                <div style="display:flex; flex-wrap:wrap; gap:16px;">
+                    <label><input type="checkbox" id="strat-ema-enabled" checked> EMA (20/50)</label>
+                    <label><input type="checkbox" id="strat-rsi-enabled" checked> RSI14 (70/30)</label>
+                    <label><input type="checkbox" id="strat-atr-enabled" checked> ATR14</label>
+                    <label><input type="checkbox" id="strat-chop-enabled" checked> Chop (порог <input type="number" step="0.05" id="strat-chop-threshold" value="0.65" style="width:50px">)</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Правила:</label>
+                <div>
+                    <label><input type="checkbox" id="strat-allow-avg" checked> Разрешать AVERAGE_IN</label><br>
+                    <label><input type="checkbox" id="strat-block-avg-chop" checked> Блокировать AVERAGE_IN в chop</label><br>
+                    <label><input type="checkbox" id="strat-prefer-trend" checked> Предпочитать MOVE_SL_TO_BE в тренде</label>
+                </div>
+            </div>
+            <div class="buttons-row">
+                <button type="submit" class="btn-primary"><i class="bi bi-floppy-fill"></i> Сохранить</button>
+            </div>
+        </form>
+    </div>
+
     {# ── Alerts ────────────────────────────────────────────────── #}
     <div class="settings-section" style="border-color: rgba(16,185,129,0.3);">
         <h3><i class="bi bi-bell-fill" style="color:var(--positive)"></i> Алерты (Telegram / Webhook)</h3>

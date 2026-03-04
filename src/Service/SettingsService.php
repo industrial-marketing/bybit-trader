@@ -75,6 +75,32 @@ class SettingsService
                 'on_repeated_failures'       => true,
                 'repeated_failure_threshold' => 3,
             ],
+            // ── Strategy Signals ─────────────────────────────────────────
+            'strategies' => [
+                'enabled'           => true,
+                'profile_overrides'  => [
+                    '1'   => 'scalp', '5' => 'scalp',
+                    '15'  => 'intraday', '60' => 'intraday',
+                    '240' => 'swing', '1440' => 'swing',
+                ],
+                'indicators' => [
+                    'ema'   => ['enabled' => true, 'fast' => 20, 'slow' => 50],
+                    'rsi14' => ['enabled' => true, 'overbought' => 70, 'oversold' => 30],
+                    'atr'   => ['enabled' => true, 'period' => 14],
+                    'chop'  => ['enabled' => true, 'threshold' => 0.65],
+                ],
+                'rules' => [
+                    'allow_average_in'       => true,
+                    'average_in_block_in_chop'=> true,
+                    'prefer_be_in_trend'     => true,
+                ],
+                'weights' => [
+                    'trend'              => 1.0,
+                    'mean_reversion'     => 0.7,
+                    'breakout'           => 0.8,
+                    'volatility_penalty' => 0.6,
+                ],
+            ],
         ];
 
         $this->settings = array_replace_recursive($defaults, $this->settings);
@@ -182,6 +208,17 @@ class SettingsService
     public function updateAlertsSettings(array $settings): void
     {
         $this->settings['alerts'] = array_merge($this->settings['alerts'] ?? [], $settings);
+        $this->saveSettings();
+    }
+
+    public function getStrategiesSettings(): array
+    {
+        return $this->settings['strategies'] ?? [];
+    }
+
+    public function updateStrategiesSettings(array $settings): void
+    {
+        $this->settings['strategies'] = array_merge($this->settings['strategies'] ?? [], $settings);
         $this->saveSettings();
     }
 

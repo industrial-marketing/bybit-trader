@@ -9,14 +9,43 @@ namespace App\Service;
 class StrategyEngineService
 {
     public function __construct(
-        private readonly BybitService $bybitService,
+        private readonly BybitService   $bybitService,
+        private readonly SettingsService $settingsService,
     ) {}
+
+    private function getStrategiesConfig(): array
+    {
+        $cfg = $this->settingsService->getStrategiesSettings();
+        if (($cfg['enabled'] ?? true) === false) {
+            return ['enabled' => false];
+        }
+        return array_merge([
+            'enabled' => true,
+            'profile_overrides' => [],
+            'indicators' => [
+                'ema'   => ['enabled' => true, 'fast' => 20, 'slow' => 50],
+                'rsi14' => ['enabled' => true, 'overbought' => 70, 'oversold' => 30],
+                'atr'   => ['enabled' => true, 'period' => 14],
+                'chop'  => ['enabled' => true, 'threshold' => 0.65],
+            ],
+            'rules' => [
+                'allow_average_in' => true,
+                'average_in_block_in_chop' => true,
+                'prefer_be_in_trend' => true,
+            ],
+        ], $cfg);
+    }
 
     /**
      * @param array{closes: float[], highs: float[], lows: float[]} $kline
      */
     public function buildSignals(string $symbol, int $timeframeMinutes, array $kline): array
     {
+        $cfg = $this->getStrategiesConfig();
+        if (!($cfg['enabled'] ?? true)) {
+            return $this->emptySignals();
+        }
+
         $closes = $kline['closes'] ?? [];
         $highs  = $kline['highs'] ?? [];
         $lows   = $kline['lows'] ?? [];
@@ -25,17 +54,28 @@ class StrategyEngineService
             return $this->emptySignals();
         }
 
-        $rsi       = IndicatorService::rsi($closes, 14);
-        $ema20     = IndicatorService::ema($closes, 20);
-        $ema50     = IndicatorService::ema($closes, 50);
-        $atrPct    = IndicatorService::atrPct($highs, $lows, $closes, 14);
+        $indicators = $cfg['indicators'] ?? [];
+        $emaCfg     = $indicators['ema'] ?? ['enabled' => true, 'fast' => 20, 'slow' => 50];
+        $rsiCfg     = $indicators['rsi14'] ?? ['enabled' => true, 'overbought' => 70, 'oversold' => 30];
+        $atrCfg     = $indicators['atr'] ?? ['enabled' => true, 'period' => 14];
+        $chopCfg    = $indicators['chop'] ?? ['enabled' => true, 'threshold' => 0.65];
+
+        $fast   = (int)($emaCfg['fast'] ?? 20);
+        $slow   = (int)($emaCfg['slow'] ?? 50);
+        $atrPer = (int)($atrCfg['period'] ?? 14);
+        $chopTh = (float)($chopCfg['threshold'] ?? 0.65);
+
+        $rsi       = ($rsiCfg['enabled'] ?? true) ? IndicatorService::rsi($closes, 14) : null;
+        $ema20     = ($emaCfg['enabled'] ?? true) ? IndicatorService::ema($closes, $fast) : null;
+        $ema50     = ($emaCfg['enabled'] ?? true) ? IndicatorService::ema($closes, $slow) : null;
+        $atrPct    = ($atrCfg['enabled'] ?? true) ? IndicatorService::atrPct($highs, $lows, $closes, $atrPer) : null;
         $trendStr  = IndicatorService::trendStrength($closes, 20);
-        $chopScore = IndicatorService::chopScore($highs, $lows, $closes, 20);
+        $chopScore = ($chopCfg['enabled'] ?? true) ? IndicatorService::chopScore($highs, $lows, $closes, 20) : 0.5;
 
         $lastClose = end($closes);
         $emaState  = 'neutral';
         $emaSlope  = 0.0;
-        if ($ema20 !== null && $ema50 !== null && $lastClose > 0) {
+        if ($ema20 !== null && $ema50 !== null && $lastClose > 0 && ($emaCfg['enabled'] ?? true)) {
             if ($ema20 > $ema50 * 1.0005) {
                 $emaState = 'bull';
                 $emaSlope = $ema50 > 0 ? (($ema20 - $ema50) / $ema50) : 0;
@@ -63,12 +103,14 @@ class StrategyEngineService
         }
 
         $breakout = $this->detectBreakout($highs, $lows, $closes);
-        $meanRev  = $this->meanReversionScore($rsi, $closes);
+        $rsiOB    = (int)($rsiCfg['overbought'] ?? 70);
+        $rsiOS    = (int)($rsiCfg['oversold'] ?? 30);
+        $meanRev  = $this->meanReversionScore($rsi, $closes, $rsiOB, $rsiOS);
 
-        $costInfo = $this->costEstimator->getTickerCostInfo($symbol);
-        $spreadPct = $costInfo['spread_pct'] ?? 0.001;
+        $costInfo  = $this->bybitService->getTickerCostInfo($symbol);
+        $spreadPct  = (float)($costInfo['spreadPct'] ?? 0.001);
 
-        $rulesHint = $this->buildRulesHint($emaState, $trendStr, $chopScore, $volatility);
+        $rulesHint = $this->buildRulesHint($emaState, $trendStr, $chopScore, $volatility, $cfg['rules'] ?? [], $chopTh);
 
         return [
             'profile'     => null,
@@ -77,14 +119,15 @@ class StrategyEngineService
                 'strength'    => round($trendStr, 2),
                 'volatility'  => $volatility,
                 'chop_score'  => $chopScore,
+                'chop_threshold' => $chopTh,
             ],
             'signals'     => [
-                'ema'           => [
-                    'fast'  => 20,
-                    'slow'  => 50,
+                'ema'           => ($emaCfg['enabled'] ?? true) ? [
+                    'fast'  => $fast,
+                    'slow'  => $slow,
                     'state' => $emaState,
                     'slope' => $emaSlope,
-                ],
+                ] : null,
                 'rsi14'         => $rsi,
                 'atr_pct'       => $atrPct,
                 'breakout'      => $breakout,
@@ -127,17 +170,17 @@ class StrategyEngineService
         return ['state' => 'none', 'level' => null];
     }
 
-    private function meanReversionScore(?float $rsi, array $closes): array
+    private function meanReversionScore(?float $rsi, array $closes, int $overbought = 70, int $oversold = 30): array
     {
         $score = 0.5;
         $bias  = 'neutral';
 
         if ($rsi !== null) {
-            if ($rsi > 70) {
-                $score = round(($rsi - 70) / 30, 2);
+            if ($rsi > $overbought) {
+                $score = round(($rsi - $overbought) / (100 - $overbought), 2);
                 $bias  = 'overbought';
-            } elseif ($rsi < 30) {
-                $score = round((30 - $rsi) / 30, 2);
+            } elseif ($rsi < $oversold) {
+                $score = round(($oversold - $rsi) / $oversold, 2);
                 $bias  = 'oversold';
             }
         }
@@ -145,17 +188,17 @@ class StrategyEngineService
         return ['score' => $score, 'bias' => $bias];
     }
 
-    private function buildRulesHint(string $emaState, float $trendStr, float $chopScore, string $volatility): array
+    private function buildRulesHint(string $emaState, float $trendStr, float $chopScore, string $volatility, array $rules, float $chopThreshold): array
     {
         $hints = [];
 
-        if ($trendStr > 0.6) {
+        if (($rules['prefer_be_in_trend'] ?? true) && $trendStr > 0.6) {
             $hints[] = 'Strong trend up: avoid CLOSE_FULL unless risk=high. Prefer MOVE_SL_TO_BE when pnl>0.';
         }
         if ($trendStr < 0.4) {
             $hints[] = 'Strong trend down: consider reducing exposure if position against trend.';
         }
-        if ($chopScore > 0.6) {
+        if (($rules['average_in_block_in_chop'] ?? true) && $chopScore >= $chopThreshold) {
             $hints[] = 'Choppy market: prefer DO_NOTHING or CLOSE_PARTIAL to reduce risk. Avoid AVERAGE_IN.';
         }
         if ($volatility === 'high') {
