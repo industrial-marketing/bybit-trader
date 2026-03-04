@@ -672,6 +672,8 @@ CSS построен на custom properties:
 * * * * * /usr/bin/curl -s -X POST http://localhost/api/bot/tick
 ```
 
+**Метрики дашборда и bot_history:** Используют `var/bot_history.json`. Путь строится от `kernel.project_dir`. Cron и web должны использовать одну копию приложения — иначе статистика не обновится при cron. Если cron запускает `php bin/console app:bot-tick` из другого каталога — задайте `VAR_DIR=/absolute/path/to/project/var` в `.env` или в окружении cron.
+
 ### Алгоритм тика
 
 ```

@@ -5,17 +5,26 @@ namespace App\Service;
 /**
  * Persistent bot event log stored in var/bot_history.json.
  *
+ * Path: project_dir/var/bot_history.json (same for web and console).
+ * Override via VAR_DIR env: absolute path to var/ (ensures same file when cron runs from different cwd).
+ *
  * All writes go through AtomicFileStorage::update() which uses flock(LOCK_EX)
  * + temp-rename to prevent JSON corruption on concurrent cron / manual runs.
- * Read-only methods go through AtomicFileStorage::read() with LOCK_SH.
  */
 class BotHistoryService
 {
     private string $filePath;
 
-    public function __construct()
+    public function __construct(string $projectDir)
     {
-        $this->filePath = __DIR__ . '/../../var/bot_history.json';
+        $varDir = $_ENV['VAR_DIR'] ?? $_SERVER['VAR_DIR'] ?? ($projectDir . DIRECTORY_SEPARATOR . 'var');
+        $this->filePath = rtrim($varDir, '/\\') . DIRECTORY_SEPARATOR . 'bot_history.json';
+    }
+
+    /** Path to var/bot_history.json (for diagnostics: cron vs web must use same path). */
+    public function getDataFilePath(): string
+    {
+        return $this->filePath;
     }
 
     /**

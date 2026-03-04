@@ -1013,6 +1013,12 @@ function renderBotMetrics(m) {
     } else {
         $('#metrics-skip-reasons').html('');
     }
+
+    if (m.data_file) {
+        $('#metrics-data-path').text('Файл: ' + m.data_file).show();
+    } else {
+        $('#metrics-data-path').hide();
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────

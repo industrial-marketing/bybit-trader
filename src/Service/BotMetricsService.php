@@ -129,6 +129,7 @@ class BotMetricsService
             'execution_rate_pct' => $proposed > 0 ? round($executed / $proposed * 100, 1) : null,
             'by_action'          => $byAction,
             'skip_reasons'       => $skipReasons,
+            'data_file'          => $this->botHistory->getDataFilePath(),
         ];
     }
 

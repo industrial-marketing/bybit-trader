@@ -8,7 +8,7 @@ namespace App\Service;
  * Prevents two concurrent PHP processes (cron + manual trigger) from running
  * the same bot tick for the same timeframe window simultaneously.
  *
- * State file: var/bot_runs.json
+ * State file: var/bot_runs.json (path via project_dir, overridable by VAR_DIR env).
  * All reads/writes are done under flock via AtomicFileStorage.
  *
  * Timeframe bucket:
@@ -25,14 +25,14 @@ namespace App\Service;
  */
 class BotRunService
 {
-    private const FILE      = '/../../var/bot_runs.json';
-    private const MAX_RUNS  = 200;
+    private const MAX_RUNS = 200;
 
     private string $filePath;
 
-    public function __construct()
+    public function __construct(string $projectDir)
     {
-        $this->filePath = __DIR__ . self::FILE;
+        $varDir = $_ENV['VAR_DIR'] ?? $_SERVER['VAR_DIR'] ?? ($projectDir . DIRECTORY_SEPARATOR . 'var');
+        $this->filePath = rtrim($varDir, '/\\') . DIRECTORY_SEPARATOR . 'bot_runs.json';
     }
 
     // ── Public API ─────────────────────────────────────────────────
