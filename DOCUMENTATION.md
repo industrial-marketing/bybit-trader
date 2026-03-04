@@ -219,7 +219,7 @@ bybit_trader/
 Управление LLM-запросами. OpenAI (primary), DeepSeek (fallback).
 
 **Версионирование стратегии:**
-- `STRATEGY_VERSION = 'manage_v3.1'` — версия промпта/стратегии, записывается в каждое решение
+- `STRATEGY_VERSION = 'manage_v3.2'` — версия промпта с StrategySignals (manage_v3.1 + индикаторы)
 - `SCHEMA_VERSION = 'schema_v3'` — версия схемы ответа LLM; при несовпадении → `DO_NOTHING`
 - `prompt_checksum` — MD5 (первые 8 символов) промпта для отслеживания изменений
 - `canary_mode` — если включён, ВСЕ действия идут в pending, ничего не исполняется автоматически
@@ -234,7 +234,7 @@ bybit_trader/
   "reason": "1-3 sentences",
   "risk": "low|medium|high",
   "params": { "close_fraction": 0.3, "average_size_usdt": null },
-  "checks": { "pnl_positive": true, "trend": "bearish", "averaging_allowed": false }
+  "checks": { "pnl_positive": true, "trend": "bearish", "averaging_allowed": false, "strategy_profile": "intraday", "strategy_alignment": true, "regime": "trend" }
 }
 ```
 
@@ -245,9 +245,32 @@ bybit_trader/
 |---|---|
 | `requestLLMRaw(...)` | Возвращает `{content, provider, error}` |
 | `getProposals(bybitService)` | Анализирует топ-25 монет, возвращает предложения (confidence ≥ 60) |
-| `manageOpenPositions(bybitService, positions)` | Решения по позициям, строгая валидация |
+| `manageOpenPositions(bybitService, positions, freshnessSec, strategySignalsBySymbol)` | Решения по позициям. strategySignals — индикаторы/режим для LLM |
 | `analyzeMarket(symbol, marketData)` | Анализ монеты, сигнал BUY/SELL/HOLD |
 | `testConnection()` | Health-check LLM |
+
+---
+
+### Strategy Engine (StrategySignals)
+
+Плагинный слой: вычисляет индикаторы и режим рынка, LLM принимает решение с учётом этих сигналов.
+
+| Сервис | Описание |
+|--------|----------|
+| `IndicatorService` | RSI, EMA, ATR%, trendStrength, chopScore |
+| `StrategyEngineService` | buildSignals(symbol, timeframe, kline) → profile, regime, signals, rules_hint |
+| `StrategyProfileService` | selectProfile(timeframe, signals) → scalp \| intraday \| swing \| chop |
+
+**Профили:** scalp (1–5m), intraday (15–60m), swing (4h–D), chop (при chop_score > 0.65).
+
+**Формат StrategySignals:**
+- `signals`: ema (fast/slow/state/slope), rsi14, atr_pct, breakout, meanReversion, spread_pct
+- `regime`: trend, strength, volatility, chop_score
+- `rules_hint`: мягкие подсказки (LLM не обязан им следовать)
+
+**Интеграция в тик:** kline → getKlineData → StrategyEngine::buildSignals → StrategyProfile::selectProfile → LLM (manageOpenPositions с blocks).
+
+**Логирование:** event `strategy_signals` в BotHistory (profiles, regime_summary) для canary/отладки.
 
 ---
 
@@ -624,11 +647,14 @@ CSS построен на custom properties:
    ├── null  → bucket уже выполнен/выполняется → вернуть skipped
    └── runId → продолжить
 5. Загрузить текущие позиции из Bybit
-6. Data Freshness: RiskGuardService::checkDataFreshness() → если stale → log(stale_data_skip) + alertRiskLimit + finish(skipped)
-7. Обогатить позиции историей цен (kline)
-8. LLM: ChatGPTService::manageOpenPositions → список решений
+6. Обогатить позиции: getKlineData() → priceHistory (строка) + klineRaw (closes, highs, lows)
+7. Strategy signals:
+   7.1) StrategyEngineService::buildSignals(symbol, timeframe, klineRaw) → regime, signals, rules_hint
+   7.2) StrategyProfileService::selectProfile(timeframe, signals) → scalp|intraday|swing|chop
+8. Data Freshness: RiskGuardService::checkDataFreshness() → если stale → log(stale_data_skip) + alertRiskLimit + finish(skipped)
+9. LLM: ChatGPTService::manageOpenPositions(positions, strategySignalsBySymbol) → список решений
    └── если пустой при наличии позиций → log(llm_failure)
-9. По каждому решению LLM:
+10. По каждому решению LLM:
    ├── action = DO_NOTHING → пропустить
    ├── position not found → пропустить
    ├── isLocked(symbol, side) → skip(locked)
@@ -641,21 +667,21 @@ CSS построен на custom properties:
        ├── CLOSE_PARTIAL        → closePositionMarket(fraction) → verifyClose()
        ├── MOVE_STOP_TO_BREAKEVEN → только если PnL > 0       → verifyStopLoss()
        └── AVERAGE_IN_ONCE      → только если !alreadyAveraged[7 days] → verifyOpen()
-10. Автооткрытие (если auto_open_enabled):
+11. Автооткрытие (если auto_open_enabled):
     ├── checkMaxExposure → если нарушен → alertRiskLimit, slots=0
     ├── slots = min(minPositions - openCount, maxManaged - openCount)
     └── getProposals → открыть с confidence >= 80%
-11. log(bot_tick, {run_id, managedCount, openedCount, timeframe, data_freshness_sec})
-12. BotRunService::finish(runId, 'done')
-13. Вернуть {ok, run_id, summary, managed[], opened[]}
+12. log(bot_tick, {run_id, managedCount, openedCount, timeframe, data_freshness_sec})
+13. BotRunService::finish(runId, 'done')
+14. Вернуть {ok, run_id, summary, managed[], opened[]}
 ```
 
 ### Трасса решений (LLM observability)
 
 Каждое выполненное событие содержит:
 - `confidence` (0-100), `reason`, `risk` (low/medium/high)
-- `checks` (pnl_positive, trend, averaging_allowed)
-- `prompt_version` (`manage_v3.1`), `schema_version` (`schema_v3`), `prompt_checksum`, `provider` (chatgpt/deepseek)
+- `checks` (pnl_positive, trend, averaging_allowed, strategy_profile, strategy_alignment, regime)
+- `prompt_version` (`manage_v3.2`), `schema_version` (`schema_v3`), `prompt_checksum`, `provider` (chatgpt/deepseek)
 - `skip_reason` (если пропущено: `locked` / `cooldown` / `min_edge` / `canary_mode` / `strict_mode_pending` / `already_averaged`)
 - `pnlAtDecision`, `realizedPnlEstimate`
 

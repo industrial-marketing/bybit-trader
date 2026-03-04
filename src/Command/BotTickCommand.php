@@ -10,6 +10,8 @@ use App\Service\ChatGPTService;
 use App\Service\CircuitBreakerService;
 use App\Service\CostEstimatorService;
 use App\Service\ExecutionGuardService;
+use App\Service\StrategyEngineService;
+use App\Service\StrategyProfileService;
 use App\Service\PendingActionsService;
 use App\Service\PositionLockService;
 use App\Service\RiskGuardService;
@@ -40,6 +42,8 @@ class BotTickCommand extends Command
         private readonly ExecutionGuardService $executionGuard,
         private readonly CircuitBreakerService $circuitBreaker,
         private readonly CostEstimatorService  $costEstimator,
+        private readonly StrategyEngineService  $strategyEngine,
+        private readonly StrategyProfileService $strategyProfile,
     ) {
         parent::__construct();
     }
@@ -145,12 +149,25 @@ class BotTickCommand extends Command
             : 30;
 
         foreach ($positions as &$pos) {
-            $pos['priceHistory']          = $this->bybitService->getKlineHistory(
+            $klineData = $this->bybitService->getKlineData(
                 $pos['symbol'] ?? '', $botTimeframe, $historyCandles, $maxPricePoints
             );
+            $pos['priceHistory']          = $klineData['summary'];
             $pos['priceHistoryTimeframe'] = $botTimeframe;
+            $pos['klineRaw']              = $klineData;
         }
         unset($pos);
+
+        $strategySignalsBySymbol = [];
+        foreach ($positions as $p) {
+            $sym = $p['symbol'] ?? '';
+            $raw = $p['klineRaw'] ?? [];
+            if ($sym !== '' && !empty($raw['closes'])) {
+                $signals = $this->strategyEngine->buildSignals($sym, $botTimeframe, $raw);
+                $signals['profile'] = $this->strategyProfile->selectProfile($botTimeframe, $signals);
+                $strategySignalsBySymbol[$sym] = $signals;
+            }
+        }
 
         // ── Data freshness check ─────────────────────────────────────────
         $freshnessCheck = $this->riskGuard->checkDataFreshness($positions);
@@ -172,7 +189,9 @@ class BotTickCommand extends Command
 
         // ── LLM: manage open positions ───────────────────────────────────
         $io->section('Managing open positions…');
-        $manageDecisions = $this->chatGPTService->manageOpenPositions($this->bybitService, $positions, $dataFreshnessSec);
+        $manageDecisions = $this->chatGPTService->manageOpenPositions(
+            $this->bybitService, $positions, $dataFreshnessSec, $strategySignalsBySymbol
+        );
 
         if (empty($manageDecisions) && $posCount > 0) {
             $this->botHistory->log('llm_failure', ['reason' => 'empty_decisions', 'positions_count' => $posCount]);

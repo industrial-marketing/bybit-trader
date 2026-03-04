@@ -6,7 +6,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class ChatGPTService
 {
-    private const STRATEGY_VERSION = 'manage_v3.1';
+    private const STRATEGY_VERSION = 'manage_v3.2';
     private const SCHEMA_VERSION  = 'schema_v3';
 
     private const REQUIRED_DECISION_FIELDS = ['symbol', 'action', 'confidence', 'reason', 'risk'];
@@ -127,8 +127,15 @@ class ChatGPTService
      *
      * On invalid JSON from LLM: all positions → DO_NOTHING, alert sent.
      */
-    public function manageOpenPositions(BybitService $bybitService, array $positions, float $dataFreshnessSec = 0.0): array
-    {
+    /**
+     * @param array<string, array> $strategySignalsBySymbol  Strategy blocks per symbol (profile, regime, signals, rules_hint)
+     */
+    public function manageOpenPositions(
+        BybitService $bybitService,
+        array       $positions,
+        float       $dataFreshnessSec = 0.0,
+        array       $strategySignalsBySymbol = []
+    ): array {
         if (!$this->hasAnyProvider() || empty($positions)) {
             return [];
         }
@@ -152,7 +159,7 @@ class ChatGPTService
         }
         $tfLabel = $tfMinutes > 0 ? "{$tfMinutes}min" : 'unknown';
 
-        // Build position lines with cost estimate
+        // Build position lines with cost estimate + strategy signals
         $lines = [];
         foreach ($positions as $p) {
             $hist     = $p['priceHistory'] ?? 'no market history';
@@ -163,14 +170,26 @@ class ChatGPTService
             $costEst  = $this->costEstimator->estimateTotalCost($notional, $symbol, false, 0);
             $costStr  = sprintf('est_cost_roundtrip=%.2f USDT (fees+slip+fund)', $costEst['total_usdt']);
 
+            $strategyBlock = '';
+            if (isset($strategySignalsBySymbol[$symbol])) {
+                $sig = $strategySignalsBySymbol[$symbol];
+                $strategyBlock = "\n  strategy: " . json_encode([
+                    'profile' => $sig['profile'] ?? null,
+                    'regime'  => $sig['regime'] ?? [],
+                    'signals' => $sig['signals'] ?? [],
+                    'rules_hint' => $sig['rules_hint'] ?? [],
+                ], JSON_UNESCAPED_UNICODE);
+            }
+
             $lines[] = sprintf(
-                "%s side=%s size=%s entry=%s mark=%s pnl=%s lev=%sx opened=%s | %s\n  market_hist(%s): %s",
+                "%s side=%s size=%s entry=%s mark=%s pnl=%s lev=%sx opened=%s | %s\n  market_hist(%s): %s%s",
                 $symbol, $p['side'] ?? '',
                 $p['size'] ?? '0', $p['entryPrice'] ?? '0',
                 $p['markPrice'] ?? '0', $p['unrealizedPnl'] ?? '0',
                 $p['leverage'] ?? '1', $p['openedAt'] ?? '',
                 $costStr,
-                $tfLabel, $hist
+                $tfLabel, $hist,
+                $strategyBlock
             );
         }
 
@@ -185,13 +204,13 @@ class ChatGPTService
         $averagedList    = empty($averagedSymbols) ? 'none' : implode(', ', array_keys($averagedSymbols));
         $historyContext  = $this->botHistory->getWeeklySummaryText();
 
-        // ── Strict-contract prompt ────────────────────────────────
+        // ── Strict-contract prompt (manage_v3.2 with StrategySignals) ─────
         $schema = <<<'JSON'
 {
   "symbol": "BTCUSDT",
   "action": "CLOSE_FULL|CLOSE_PARTIAL|MOVE_STOP_TO_BREAKEVEN|AVERAGE_IN_ONCE|DO_NOTHING",
   "confidence": <integer 0-100>,
-  "reason": "<1-3 sentences>",
+  "reason": "<1-3 sentences. Mention StrategySignals + kline trend + risk>",
   "risk": "low|medium|high",
   "params": {
     "close_fraction": <0.1-1.0 or null>,
@@ -199,8 +218,11 @@ class ChatGPTService
   },
   "checks": {
     "pnl_positive": <true|false>,
-    "trend": "bullish|bearish|flat",
-    "averaging_allowed": <true|false>
+    "trend": "bullish|bearish|sideways|unknown",
+    "averaging_allowed": <true|false>,
+    "strategy_profile": "scalp|intraday|swing|chop|unknown",
+    "strategy_alignment": <true|false>,
+    "regime": "trend|chop|volatile|unknown"
   }
 }
 JSON;
@@ -213,8 +235,15 @@ JSON;
             );
         }
 
+        $strategyIntro = empty($strategySignalsBySymbol) ? '' : (
+            "StrategySignals (strategy block per position) are computed indicators. DO NOT invent values.\n" .
+            "If StrategySignals missing → treat as unknown, prefer DO_NOTHING or lower confidence.\n" .
+            "Use strategy.profile + strategy.regime as primary context. Different timeframes = different profiles.\n"
+        );
+
         $prompt  = "TRADING TIMEFRAME: {$tfLabel}. Use market price history on this timeframe for trend/momentum.\n";
         $prompt .= "Price history = real market prices. ⚠️ If history is insufficient — note uncertainty.\n";
+        $prompt .= $strategyIntro;
         $prompt .= $freshnessNote . "\n";
         $prompt .= "OPEN POSITIONS ({$posCount}):\n" . implode("\n\n", $lines);
         $prompt .= "\n\nBOT HISTORY (last 7 days):\n" . $historyContext;
@@ -222,9 +251,11 @@ JSON;
         $prompt .= "RULES:\n";
         $prompt .= "- Each position shows est_cost_roundtrip (fees + slippage + funding). Edge must exceed costs × 2.\n";
         $prompt .= "- Fees ≈ 0.12% round-trip; + slippage + funding. Avoid tiny-edge trades (PnL near 0).\n";
-        $prompt .= "- Only AVERAGE_IN_ONCE if symbol NOT in averaged list AND you see a strong edge.\n";
+        $prompt .= "- Only AVERAGE_IN_ONCE if symbol NOT in averaged list AND regime != chop AND you see a strong edge.\n";
+        $prompt .= "- In chop regime prefer DO_NOTHING or CLOSE_PARTIAL to reduce risk.\n";
+        $prompt .= "- Strong trend + pnl>0 => consider MOVE_STOP_TO_BREAKEVEN (if not already).\n";
         $prompt .= "- CLOSE_PARTIAL fraction must be 0.1–0.5.\n";
-        $prompt .= "- Fill checks.pnl_positive from position pnl field.\n\n";
+        $prompt .= "- Fill checks from position pnl and strategy. If signals contradict => strategy_alignment=false, reduce confidence.\n\n";
         $prompt .= "STRICT OUTPUT CONTRACT: Return a JSON **array** (one element per position, same order).\n";
         $prompt .= "Each element MUST contain ALL these fields:\n{$schema}\n";
         $prompt .= "Missing/invalid fields → set action to DO_NOTHING. No extra text.";
@@ -259,6 +290,13 @@ JSON;
         );
 
         $promptChecksum = substr(md5($prompt), 0, 8);
+
+        if (!empty($strategySignalsBySymbol)) {
+            $this->botHistory->log('strategy_signals', [
+                'profiles' => array_map(fn($s) => $s['profile'] ?? null, $strategySignalsBySymbol),
+                'regime_summary' => array_map(fn($s) => $s['regime']['trend'] ?? null, $strategySignalsBySymbol),
+            ]);
+        }
 
         $rawContent = $result['content'];
         $provider   = $result['provider'] ?? 'unknown';
@@ -345,9 +383,12 @@ JSON;
                 'reason'              => mb_substr((string)($item['reason'] ?? ''), 0, 500),
                 'risk'                => strtolower($item['risk'] ?? 'medium'),
                 'checks'              => [
-                    'pnl_positive'      => $checks['pnl_positive']    ?? null,
-                    'trend'             => $checks['trend']           ?? null,
-                    'averaging_allowed' => $checks['averaging_allowed'] ?? null,
+                    'pnl_positive'       => $checks['pnl_positive']       ?? null,
+                    'trend'              => $checks['trend']              ?? null,
+                    'averaging_allowed'  => $checks['averaging_allowed']  ?? null,
+                    'strategy_profile'   => $checks['strategy_profile']   ?? null,
+                    'strategy_alignment' => $checks['strategy_alignment'] ?? null,
+                    'regime'             => $checks['regime']            ?? null,
                 ],
                 'close_fraction'      => $closeFraction,
                 'average_size_usdt'   => $avgSize,

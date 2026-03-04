@@ -579,15 +579,16 @@ class BybitService
     }
 
     /**
-     * Fetch kline (OHLCV) history from Bybit and format as compact LLM string.
-     * Uses canonical *USDT symbol for the API call.
+     * Fetch kline and return summary string + raw arrays (single API call).
+     *
+     * @return array{summary: string, closes: float[], highs: float[], lows: float[]}
      */
-    public function getKlineHistory(
+    public function getKlineData(
         string $symbol,
         int    $intervalMinutes,
         int    $limit         = 60,
         int    $maxPricePoints = 30
-    ): string {
+    ): array {
         $settings    = $this->settingsService->getBybitSettings();
         $baseUrl     = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
 
@@ -627,7 +628,7 @@ class BybitService
 
             if (($data['retCode'] ?? -1) !== 0 || empty($data['result']['list'])) {
                 $err = $data['retMsg'] ?? 'no data';
-                return "[kline error for {$klineSymbol}: {$err}]";
+                return ['summary' => "[kline error for {$klineSymbol}: {$err}]", 'closes' => [], 'highs' => [], 'lows' => []];
             }
 
             $candles = array_reverse($data['result']['list']);
@@ -655,12 +656,26 @@ class BybitService
 
             $recentCloses = array_slice($closes, -$maxPricePoints);
             $pricesStr    = implode(',', array_map(fn($p) => round($p, 6), $recentCloses));
+            $summary      = $header . ' closes:' . $pricesStr;
 
-            return $header . ' closes:' . $pricesStr;
+            return ['summary' => $summary, 'closes' => $closes, 'highs' => $highs, 'lows' => $lows];
         } catch (\Exception $e) {
-            $this->log("getKlineHistory({$klineSymbol},{$interval}) error: " . $e->getMessage());
-            return "[kline unavailable for {$klineSymbol}]";
+            $this->log("getKlineData({$klineSymbol},{$interval}) error: " . $e->getMessage());
+            return ['summary' => "[kline unavailable for {$klineSymbol}]", 'closes' => [], 'highs' => [], 'lows' => []];
         }
+    }
+
+    /**
+     * Fetch kline and return compact LLM string. Wrapper around getKlineData().
+     */
+    public function getKlineHistory(
+        string $symbol,
+        int    $intervalMinutes,
+        int    $limit         = 60,
+        int    $maxPricePoints = 30
+    ): string {
+        $data = $this->getKlineData($symbol, $intervalMinutes, $limit, $maxPricePoints);
+        return $data['summary'];
     }
 
     public function getOpenOrders(string $symbol = ''): array

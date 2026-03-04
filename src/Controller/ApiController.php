@@ -11,6 +11,8 @@ use App\Service\ChatGPTService;
 use App\Service\CircuitBreakerService;
 use App\Service\CostEstimatorService;
 use App\Service\ExecutionGuardService;
+use App\Service\StrategyEngineService;
+use App\Service\StrategyProfileService;
 use App\Service\PendingActionsService;
 use App\Service\PositionLockService;
 use App\Service\RiskGuardService;
@@ -37,6 +39,8 @@ class ApiController extends AbstractController
         private readonly ExecutionGuardService $executionGuard,
         private readonly CircuitBreakerService $circuitBreaker,
         private readonly CostEstimatorService  $costEstimator,
+        private readonly StrategyEngineService  $strategyEngine,
+        private readonly StrategyProfileService $strategyProfile,
     ) {}
 
     // ── Positions / orders / trades ───────────────────────────────
@@ -227,12 +231,27 @@ class ApiController extends AbstractController
         $maxPricePoints    = $posCount > 0 ? max(5, min(30, (int)floor($charBudgetHistory / ($posCount * 8)))) : 30;
 
         foreach ($positions as &$pos) {
-            $pos['priceHistory']          = $this->bybitService->getKlineHistory(
+            $klineData = $this->bybitService->getKlineData(
                 $pos['symbol'] ?? '', $botTimeframe, $historyCandles, $maxPricePoints
             );
+            $pos['priceHistory']          = $klineData['summary'];
             $pos['priceHistoryTimeframe'] = $botTimeframe;
+            $pos['klineRaw']              = $klineData;
         }
         unset($pos);
+
+        // ── Strategy signals (7.1, 7.2) ───────────────────────────────
+        $strategySignalsBySymbol = [];
+        foreach ($positions as $p) {
+            $sym  = $p['symbol'] ?? '';
+            $raw  = $p['klineRaw'] ?? [];
+            if ($sym === '' || empty($raw['closes'])) {
+                continue;
+            }
+            $signals = $this->strategyEngine->buildSignals($sym, $botTimeframe, $raw);
+            $signals['profile'] = $this->strategyProfile->selectProfile($botTimeframe, $signals);
+            $strategySignalsBySymbol[$sym] = $signals;
+        }
 
         // ── Data freshness check ──────────────────────────────────────
         $freshnessCheck = $this->riskGuard->checkDataFreshness($positions);
@@ -253,7 +272,9 @@ class ApiController extends AbstractController
         $dataFreshnessSec = (float)($freshnessCheck['age_sec'] ?? 0.0);
 
         // ── LLM: manage open positions ────────────────────────────────
-        $manageDecisions = $this->chatGPTService->manageOpenPositions($this->bybitService, $positions, $dataFreshnessSec);
+        $manageDecisions = $this->chatGPTService->manageOpenPositions(
+            $this->bybitService, $positions, $dataFreshnessSec, $strategySignalsBySymbol
+        );
 
         if (empty($manageDecisions) && $posCount > 0) {
             $this->botHistory->log('llm_failure', ['reason' => 'empty_decisions', 'positions_count' => $posCount]);
