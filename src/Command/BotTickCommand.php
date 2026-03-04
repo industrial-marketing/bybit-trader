@@ -7,6 +7,8 @@ use App\Service\BotHistoryService;
 use App\Service\BotRunService;
 use App\Service\BybitService;
 use App\Service\ChatGPTService;
+use App\Service\CircuitBreakerService;
+use App\Service\CostEstimatorService;
 use App\Service\ExecutionGuardService;
 use App\Service\PendingActionsService;
 use App\Service\PositionLockService;
@@ -36,6 +38,8 @@ class BotTickCommand extends Command
         private readonly AlertService          $alertService,
         private readonly BotRunService         $botRunService,
         private readonly ExecutionGuardService $executionGuard,
+        private readonly CircuitBreakerService $circuitBreaker,
+        private readonly CostEstimatorService  $costEstimator,
     ) {
         parent::__construct();
     }
@@ -60,6 +64,13 @@ class BotTickCommand extends Command
         // ── Kill-switch ──────────────────────────────────────────────────
         if (!$this->riskGuard->isTradingEnabled()) {
             $io->warning('Trading disabled (kill-switch). Tick skipped.');
+            return Command::SUCCESS;
+        }
+
+        // ── Circuit Breaker ──────────────────────────────────────────────
+        $cbStatus = $this->circuitBreaker->getStatus();
+        if ($cbStatus['is_open']) {
+            $io->warning($cbStatus['message']);
             return Command::SUCCESS;
         }
 
@@ -218,12 +229,14 @@ class BotTickCommand extends Command
             $pnlAtDecision = isset($position['unrealizedPnl']) ? (float) $position['unrealizedPnl'] : null;
 
             $traceFields = [
-                'confidence'     => $d['confidence']     ?? null,
-                'reason'         => $d['reason']         ?? ($d['note'] ?? ''),
-                'risk'           => $d['risk']           ?? null,
-                'checks'         => $d['checks']         ?? null,
-                'prompt_version' => $d['prompt_version'] ?? null,
-                'provider'       => $d['provider']       ?? null,
+                'confidence'      => $d['confidence']      ?? null,
+                'reason'          => $d['reason']          ?? ($d['note'] ?? ''),
+                'risk'            => $d['risk']            ?? null,
+                'checks'          => $d['checks']          ?? null,
+                'prompt_version'  => $d['prompt_version']  ?? null,
+                'schema_version'  => $d['schema_version']  ?? null,
+                'prompt_checksum' => $d['prompt_checksum'] ?? null,
+                'provider'        => $d['provider']        ?? null,
             ];
 
             if ($this->positionLockService->isLocked($symbol, $side)) {
@@ -241,6 +254,29 @@ class BotTickCommand extends Command
                     'symbol' => $symbol, 'side' => $side, 'action' => $action,
                     'ok' => false, 'skipped' => true, 'skip_reason' => 'cooldown',
                 ]);
+                continue;
+            }
+
+            // ── Canary mode — ALL actions go to pending ──────────────
+            $isCanary = $d['canary'] ?? false;
+            if ($isCanary) {
+                if (!$this->pendingActions->hasPending($symbol, $action)) {
+                    $pndId = $this->pendingActions->add([
+                        'symbol'            => $symbol,
+                        'side'              => $side,
+                        'action'            => $action,
+                        'note'              => $d['note'] ?? '',
+                        'close_fraction'    => $d['close_fraction']    ?? 0.5,
+                        'average_size_usdt' => $d['average_size_usdt'] ?? 10.0,
+                        'pnlAtDecision'     => $pnlAtDecision,
+                    ]);
+                    $io->writeln("  <comment>[CANARY → pending {$pndId}]</comment> {$symbol} {$side} → {$action}");
+                    $managed[] = array_merge($traceFields, [
+                        'symbol' => $symbol, 'side' => $side, 'action' => $action,
+                        'ok' => true, 'pending' => true, 'pending_id' => $pndId,
+                        'skip_reason' => 'canary_mode',
+                    ]);
+                }
                 continue;
             }
 
@@ -275,7 +311,22 @@ class BotTickCommand extends Command
             if ($action === 'CLOSE_FULL' || $action === 'CLOSE_PARTIAL') {
                 $fraction   = $action === 'CLOSE_FULL' ? 1.0 : (float) ($d['close_fraction'] ?? 0.5);
                 $sizeBefore = (float) ($position['size'] ?? 0);
-                $result     = $this->bybitService->closePositionMarket($symbol, $side, $fraction);
+                $notional   = $sizeBefore * (float) ($position['markPrice'] ?? $position['entryPrice'] ?? 0) * $fraction;
+                $edgeUsdt   = $pnlAtDecision !== null ? ($action === 'CLOSE_FULL' ? $pnlAtDecision : $pnlAtDecision * $fraction) : 0;
+
+                $costEst   = $this->costEstimator->estimateTotalCost($notional, $symbol, false, 0);
+                $edgeCheck = $this->costEstimator->checkMinimumEdge($edgeUsdt, $costEst['total_usdt']);
+                if (!$edgeCheck['ok']) {
+                    $io->writeln("  <comment>[SKIP min_edge]</comment> {$symbol} {$side} → {$action} — edge {$edgeUsdt}\$ < costs×mult");
+                    $managed[] = array_merge($traceFields, [
+                        'symbol' => $symbol, 'side' => $side, 'action' => $action,
+                        'ok' => false, 'skipped' => true, 'skip_reason' => 'min_edge',
+                        'min_edge_detail' => $edgeCheck,
+                    ]);
+                    continue;
+                }
+
+                $result = $this->bybitService->closePositionMarket($symbol, $side, $fraction);
                 if (!empty($result['skipped'])) {
                     $eventType  = 'close_partial_skip';
                     $skipReason = $result['skipReason'] ?? 'position_too_small';

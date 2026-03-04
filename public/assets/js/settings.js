@@ -1,6 +1,7 @@
 $(document).ready(function() {
     loadSettings();
-    
+    loadCbStatus();
+
     $('#bybit-settings-form').on('submit', function(e) {
         e.preventDefault();
         saveBybitSettings();
@@ -24,6 +25,19 @@ $(document).ready(function() {
     $('#risk-settings-form').on('submit', function(e) {
         e.preventDefault();
         saveRiskSettings();
+    });
+
+    $('#cb-settings-form').on('submit', function(e) {
+        e.preventDefault();
+        saveCbSettings();
+    });
+
+    $('#cb-status-btn').on('click', function() {
+        loadCbStatus();
+    });
+
+    $('#cb-reset-btn').on('click', function() {
+        resetCircuitBreaker(null);
     });
 
     $('#alerts-settings-form').on('submit', function(e) {
@@ -91,6 +105,17 @@ function loadSettings() {
                 $('#risk-max-exposure').val(data.trading.max_total_exposure_usdt || '0');
                 $('#risk-cooldown').val(data.trading.action_cooldown_minutes ?? '30');
                 $('#risk-strict-mode').prop('checked', !!data.trading.bot_strict_mode);
+                $('#risk-canary-mode').prop('checked', !!data.trading.canary_mode);
+                $('#risk-min-edge-mult').val(data.trading.min_edge_multiplier ?? '2');
+            }
+
+            // Circuit Breaker settings (stored in trading)
+            if (data.trading) {
+                $('#cb-enabled').prop('checked', data.trading.cb_enabled !== false);
+                $('#cb-bybit-threshold').val(data.trading.cb_bybit_threshold || 5);
+                $('#cb-llm-threshold').val(data.trading.cb_llm_threshold || 3);
+                $('#cb-llm-invalid-threshold').val(data.trading.cb_llm_invalid_threshold || 5);
+                $('#cb-cooldown').val(data.trading.cb_cooldown_minutes || 30);
             }
 
             // Alerts settings
@@ -217,7 +242,9 @@ function saveRiskSettings() {
             daily_loss_limit_usdt:   parseFloat($('#risk-daily-loss').val()    || '0'),
             max_total_exposure_usdt: parseFloat($('#risk-max-exposure').val()  || '0'),
             action_cooldown_minutes: parseInt($('#risk-cooldown').val()        || '0', 10),
-            bot_strict_mode:         $('#risk-strict-mode').is(':checked')
+            bot_strict_mode:         $('#risk-strict-mode').is(':checked'),
+            canary_mode:             $('#risk-canary-mode').is(':checked'),
+            min_edge_multiplier:     parseFloat($('#risk-min-edge-mult').val() || '2')
         }
     };
 
@@ -313,4 +340,72 @@ function testDeepseekConnection() {
         .fail(function() {
             showMessage('Ошибка запроса к /api/test/chatgpt', 'error');
         });
+}
+
+// ── Circuit Breaker ───────────────────────────────────────────────────
+
+function loadCbStatus() {
+    $.get('/api/bot/circuit-breaker')
+        .done(function(data) {
+            renderCbBanner(data);
+        });
+}
+
+function renderCbBanner(data) {
+    const $banner = $('#cb-status-banner');
+    if (!data || !data.enabled) {
+        $banner.hide();
+        return;
+    }
+    if (data.is_open) {
+        $banner
+            .css({ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.5)', color: 'var(--negative)' })
+            .html('<i class="bi bi-lightning-charge-fill"></i> <strong>CIRCUIT BREAKER OPEN:</strong> ' + data.message)
+            .show();
+    } else {
+        const parts = [];
+        if (data.breakers) {
+            for (const [type, b] of Object.entries(data.breakers)) {
+                if (b.consecutive > 0) {
+                    parts.push(type + ': ' + b.consecutive + '/' + b.threshold + ' failures');
+                }
+            }
+        }
+        if (parts.length > 0) {
+            $banner
+                .css({ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.4)', color: 'var(--warning)' })
+                .html('<i class="bi bi-activity"></i> Circuit breaker: CLOSED — ' + parts.join(', '))
+                .show();
+        } else {
+            $banner
+                .css({ background: 'rgba(16,185,129,0.10)', border: '1px solid rgba(16,185,129,0.4)', color: 'var(--positive)' })
+                .html('<i class="bi bi-check-circle-fill"></i> Circuit breaker: CLOSED — no failures recorded.')
+                .show();
+        }
+    }
+}
+
+function saveCbSettings() {
+    const settings = {
+        trading: {
+            cb_enabled:               $('#cb-enabled').is(':checked'),
+            cb_bybit_threshold:       parseInt($('#cb-bybit-threshold').val() || '5', 10),
+            cb_llm_threshold:         parseInt($('#cb-llm-threshold').val() || '3', 10),
+            cb_llm_invalid_threshold: parseInt($('#cb-llm-invalid-threshold').val() || '5', 10),
+            cb_cooldown_minutes:      parseInt($('#cb-cooldown').val() || '30', 10),
+        }
+    };
+    $.ajax({ url: '/api/settings', method: 'POST', contentType: 'application/json', data: JSON.stringify(settings) })
+        .done(function() { showMessage('Настройки Circuit Breaker сохранены!', 'success'); })
+        .fail(function() { showMessage('Ошибка сохранения Circuit Breaker', 'error'); });
+}
+
+function resetCircuitBreaker(type) {
+    const payload = type ? { type: type } : {};
+    $.ajax({ url: '/api/bot/circuit-breaker/reset', method: 'POST', contentType: 'application/json', data: JSON.stringify(payload) })
+        .done(function(data) {
+            showMessage('Circuit breaker сброшен.', 'success');
+            renderCbBanner(data.status);
+        })
+        .fail(function() { showMessage('Ошибка сброса circuit breaker', 'error'); });
 }

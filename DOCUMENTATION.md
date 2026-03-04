@@ -1,6 +1,6 @@
 # Bybit Trader — Документация
 
-> Последнее обновление: 01.03.2026 (rev 6)
+> Последнее обновление: 25.02.2026 (rev 7)
 
 ## Содержание
 
@@ -63,9 +63,11 @@ Symfony Router
             ├── RiskGuardService      (kill-switch, loss limit, exposure, cooldown)
             ├── AlertService          (Telegram / webhook алерты)
             ├── BotMetricsService     (метрики LLM-решений, трасса "Why")
-            ├── ExecutionGuardService (post-check исполнения ордеров)
-            ├── AtomicFileStorage     (flock + temp-rename, базовый I/O)
-            └── LogSanitizer          (редактирование секретов в логах)
+            ├── CostEstimatorService   (fees + slippage + funding, min-edge check)
+            ├── ExecutionGuardService  (post-check исполнения ордеров)
+            ├── CircuitBreakerService   (авто-пауза при серии сбоев)
+            ├── AtomicFileStorage      (flock + temp-rename, базовый I/O)
+            └── LogSanitizer           (редактирование секретов в логах)
 ```
 
 ---
@@ -76,14 +78,16 @@ Symfony Router
 bybit_trader/
 ├── src/
 │   ├── Command/
-│   │   └── BotTickCommand.php        ← консольная команда app:bot-tick (для cron)
+│   │   └── BotTickCommand.php          ← консольная команда app:bot-tick (для cron)
 │   ├── Controller/
 │   │   ├── ApiController.php         ← все /api/* эндпоинты
 │   │   ├── DashboardController.php   ← рендер страниц
 │   │   └── SecurityController.php    ← /login, /logout
 │   └── Service/
-│       ├── AtomicFileStorage.php     ← flock + temp-rename, базовый слой I/O
-│       ├── ExecutionGuardService.php ← post-check исполнения: verifyClose/verifyOpen/verifyStopLoss
+│       ├── AtomicFileStorage.php       ← flock + temp-rename, базовый слой I/O
+│       ├── CircuitBreakerService.php   ← авто-пауза при N подряд сбоях (TTL + manual reset)
+│       ├── CostEstimatorService.php    ← fees + slippage + funding, estimateTotalCost, checkMinimumEdge
+│       ├── ExecutionGuardService.php   ← post-check исполнения: verifyClose/verifyOpen/verifyStopLoss
 │       ├── BybitService.php          ← Bybit API v5 (retry, time-sync, instrument cache)
 │       ├── ChatGPTService.php        ← LLM (OpenAI + DeepSeek, строгий контракт v3)
 │       ├── SettingsService.php       ← настройки (var/settings.json + env override)
@@ -124,6 +128,7 @@ bybit_trader/
 │   ├── bot_runs.json                ← история запусков тика (идемпотентность)
 │   ├── position_locks.json          ← заблокированные позиции
 │   ├── pending_actions.json         ← ожидающие подтверждения (strict mode, TTL 60 мин)
+│   ├── circuit_breaker.json         ← состояние CB-автоматов (TTL = cooldown_minutes)
 │   ├── bybit_time_offset.json       ← кеш сдвига часов (TTL 5 мин)
 │   └── instrument_cache.json        ← кеш инструментов Bybit (TTL 1 ч)
 ├── .env                             ← дефолтные ENV-переменные (коммитится)
@@ -192,6 +197,7 @@ bybit_trader/
 | `testConnection()` | Проверка + показывает сдвиг часов с Bybit |
 | `getPositionBySymbol(symbol, side)` | Одна позиция по символу+side. Используется в ExecutionGuardService |
 | `getOrderFromHistory(symbol, orderId)` | Детали ордера из `/v5/order/history` (cumExecQty, avgPrice, orderStatus) |
+| `getTickerCostInfo(symbol)` | Funding rate, spread %, markPrice, bid1/ask1 — для CostEstimatorService |
 
 **Freshness:** каждая позиция содержит поле `_fetched_at_ms` (unix-мс, когда был получен ответ от Bybit). Используется `RiskGuardService::checkDataFreshness()` перед вызовом LLM.
 
@@ -211,9 +217,13 @@ bybit_trader/
 
 Управление LLM-запросами. OpenAI (primary), DeepSeek (fallback).
 
-**`MANAGE_PROMPT_VERSION = 'manage_v3'`** — записывается в каждое событие бота.
+**Версионирование стратегии:**
+- `STRATEGY_VERSION = 'manage_v3.1'` — версия промпта/стратегии, записывается в каждое решение
+- `SCHEMA_VERSION = 'schema_v3'` — версия схемы ответа LLM; при несовпадении → `DO_NOTHING`
+- `prompt_checksum` — MD5 (первые 8 символов) промпта для отслеживания изменений
+- `canary_mode` — если включён, ВСЕ действия идут в pending, ничего не исполняется автоматически
 
-**Строгий контракт ответа (manage_v3):**
+**Строгий контракт ответа (schema_v3):**
 
 ```json
 {
@@ -271,6 +281,7 @@ bybit_trader/
 | `position_lock` | Установка/снятие замка |
 | `execution_mismatch` | Фактическое состояние биржи не совпало с ожидаемым после ордера |
 | `stale_data_skip` | Тик пропущен — данные позиций старее `max_data_age_sec` |
+| `circuit_breaker_reset` | Ручной сброс Circuit Breaker через API/UI (`type`, `reset_by`) |
 
 **Ограничения:** 14 дней, максимум 1000 записей.
 
@@ -346,6 +357,19 @@ bybit_trader/
 
 ---
 
+### `CostEstimatorService`
+
+Оценка издержек: fees (0.06%/side), slippage (половинный spread), funding (8h horizon). Используется для проверки min_edge перед закрытием.
+
+| Метод | Описание |
+|---|---|
+| `estimateTotalCost(notionalUsdt, symbol, isOpen, holdingHours)` | Возвращает `fees_usdt`, `slippage_usdt`, `funding_usdt`, `total_usdt` |
+| `checkMinimumEdge(estimatedEdgeUsdt, totalCostUsdt)` | Блокирует, если edge < cost × `min_edge_multiplier` (default 2x) |
+
+**Настройка:** `min_edge_multiplier` (trading). 0 = отключить проверку.
+
+---
+
 ### `ExecutionGuardService`
 
 Post-check верификатор: после каждого реально исполненного действия бота проверяет, что биржа пришла в ожидаемое состояние.
@@ -367,6 +391,43 @@ Post-check верификатор: после каждого реально ис
 - `message` — человекочитаемый вердикт
 
 **При mismatch:** автоматически записывает событие `execution_mismatch` в историю бота + отправляет алерт через `AlertService::alertBybitError()`.
+
+---
+
+### `CircuitBreakerService`
+
+Автоматически приостанавливает торговлю при серии однотипных сбоев. Состояние хранится в `var/circuit_breaker.json` (TTL-based, atomic I/O).
+
+**Три независимых автомата:**
+| Тип | Источник сбоев | Порог по умолч. |
+|---|---|---|
+| `bybit` | Ошибки Bybit API (`alertBybitError`) | 5 подряд |
+| `llm` | Сбои LLM — нет ответа / таймаут (`alertLLMFailure`) | 3 подряд |
+| `llm_invalid` | Невалидные ответы LLM — плохой JSON/схема (`alertInvalidResponse`) | 5 подряд |
+
+**Жизненный цикл:**
+- `CLOSED` (норма) → накапливаются ошибки
+- `OPEN` → срабатывает порог → торговля заблокирована на `cb_cooldown_minutes` (по умолч. 30 мин)
+- Автоматически возвращается в CLOSED после истечения TTL, или вручную через API/UI
+
+**Методы:**
+- `recordFailure(type, reason)` — фиксирует сбой; возвращает `true`, если цепь только что разомкнулась
+- `recordSuccess(type)` — сбрасывает счётчик consecutive (пока TTL не активен)
+- `isOpen(): bool` — возвращает `true`, если хоть один автомат открыт
+- `getStatus(): array` — полный статус для API/UI (включая `remaining_sec`, `reason`, счётчики)
+- `reset(?type)` — ручной сброс одного или всех автоматов
+
+**Интеграция:**
+- `AlertService` вызывает `recordFailure()` автоматически при каждом `alertBybitError`, `alertLLMFailure`, `alertInvalidResponse`
+- `ApiController::botTick()` и `BotTickCommand::runTick()` проверяют `isOpen()` сразу после kill-switch
+- При блокировке возвращается ответ `{ ok: false, blocked: true, reason: "circuit_breaker", message: "Paused by circuit breaker: ..." }`
+
+**Настройки** (в секции `trading` → `var/settings.json`):
+- `cb_enabled` — bool, включить/выключить (default: `true`)
+- `cb_bybit_threshold` — порог ошибок Bybit (default: `5`)
+- `cb_llm_threshold` — порог сбоев LLM (default: `3`)
+- `cb_llm_invalid_threshold` — порог невалидных ответов (default: `5`)
+- `cb_cooldown_minutes` — длительность паузы (default: `30`)
 
 ---
 
@@ -469,6 +530,8 @@ CSS построен на custom properties:
 | GET | `/api/bot/metrics` | Агрегированные метрики LLM (query: `days`) |
 | GET | `/api/bot/decisions` | Детальная трасса LLM-решений (query: `limit`) |
 | GET | `/api/bot/runs` | История запусков тика (query: `limit`). Для диагностики |
+| GET | `/api/bot/circuit-breaker` | Статус всех CB-автоматов (consecutive, tripped_at, remaining_sec) |
+| POST | `/api/bot/circuit-breaker/reset` | Ручной сброс. Body: `{"type":"bybit"|"llm"|"llm_invalid"}` или `{}` для всех |
 | GET | `/api/risk/status` | Статус всех риск-гардов |
 | GET | `/api/pending-actions` | Действия ожидающие подтверждения |
 | POST | `/api/pending-actions/{id}/confirm` | Подтвердить действие |
@@ -515,7 +578,14 @@ CSS построен на custom properties:
 | `max_total_exposure_usdt` | Макс. суммарный залог (notional/leverage). 0 = отключено |
 | `action_cooldown_minutes` | Cooldown между действиями по одному символу. 0 = без ограничений |
 | `bot_strict_mode` | Двухфазное исполнение: CLOSE_FULL и AVERAGE_IN требуют подтверждения |
+| `canary_mode` | Safe rollout: ВСЕ действия бота идут в pending. Включать при смене стратегии/промпта |
+| `min_edge_multiplier` | Min edge = costs × этот множитель. 0 = отключено (default: 2) |
 | `max_data_age_sec` | Макс. допустимый возраст данных позиций в секундах. 0 = отключено (default: 30) |
+| `cb_enabled` | Включить/выключить circuit breaker (default: `true`) |
+| `cb_bybit_threshold` | Порог ошибок Bybit для срабатывания (default: `5`) |
+| `cb_llm_threshold` | Порог сбоев LLM для срабатывания (default: `3`) |
+| `cb_llm_invalid_threshold` | Порог невалидных LLM-ответов (default: `5`) |
+| `cb_cooldown_minutes` | Длительность паузы после срабатывания в минутах (default: `30`) |
 
 ### Алерты (Telegram / Webhook)
 | Параметр | Описание |
@@ -547,32 +617,36 @@ CSS построен на custom properties:
 
 ```
 1. Kill-switch: trading_enabled = false → вернуть blocked
-2. Daily loss limit: checkDailyLossLimit() → если нарушен → вернуть blocked + alertRiskLimit
-3. Idempotency: BotRunService::tryStart(botTimeframe)
+2. Circuit Breaker: CircuitBreakerService::isOpen() = true → вернуть blocked (reason: circuit_breaker)
+3. Daily loss limit: checkDailyLossLimit() → если нарушен → вернуть blocked + alertRiskLimit
+4. Idempotency: BotRunService::tryStart(botTimeframe)
    ├── null  → bucket уже выполнен/выполняется → вернуть skipped
    └── runId → продолжить
-4. Загрузить текущие позиции из Bybit
-5. Обогатить позиции историей цен (kline)
-6. LLM: ChatGPTService::manageOpenPositions → список решений
+5. Загрузить текущие позиции из Bybit
+6. Data Freshness: RiskGuardService::checkDataFreshness() → если stale → log(stale_data_skip) + alertRiskLimit + finish(skipped)
+7. Обогатить позиции историей цен (kline)
+8. LLM: ChatGPTService::manageOpenPositions → список решений
    └── если пустой при наличии позиций → log(llm_failure)
-7. По каждому решению LLM:
+9. По каждому решению LLM:
    ├── action = DO_NOTHING → пропустить
    ├── position not found → пропустить
    ├── isLocked(symbol, side) → skip(locked)
    ├── !isActionAllowed(symbol) → skip(cooldown)
+   ├── canary_mode=true → ВСЕ действия → pendingAction → skip(canary_mode)
    ├── isStrictMode() + isDangerousAction() → add pendingAction → skip(strict_mode_pending)
-   └── execute:
-       ├── CLOSE_FULL           → closePositionMarket(1.0)
-       ├── CLOSE_PARTIAL        → closePositionMarket(fraction)
-       ├── MOVE_STOP_TO_BREAKEVEN → только если PnL > 0
-       └── AVERAGE_IN_ONCE      → только если !alreadyAveraged[7 days]
-8. Автооткрытие (если auto_open_enabled):
-   ├── checkMaxExposure → если нарушен → alertRiskLimit, slots=0
-   ├── slots = min(minPositions - openCount, maxManaged - openCount)
-   └── getProposals → открыть с confidence >= 80%
-9. log(bot_tick, {run_id, managedCount, openedCount, timeframe})
-10. BotRunService::finish(runId, 'done')
-11. Вернуть {ok, run_id, summary, managed[], opened[]}
+   ├── CLOSE: CostEstimatorService::checkMinimumEdge(edge, cost) → если fail → skip(min_edge)
+   └── execute + ExecutionGuard (post-check 2s):
+       ├── CLOSE_FULL           → closePositionMarket(1.0)    → verifyClose()
+       ├── CLOSE_PARTIAL        → closePositionMarket(fraction) → verifyClose()
+       ├── MOVE_STOP_TO_BREAKEVEN → только если PnL > 0       → verifyStopLoss()
+       └── AVERAGE_IN_ONCE      → только если !alreadyAveraged[7 days] → verifyOpen()
+10. Автооткрытие (если auto_open_enabled):
+    ├── checkMaxExposure → если нарушен → alertRiskLimit, slots=0
+    ├── slots = min(minPositions - openCount, maxManaged - openCount)
+    └── getProposals → открыть с confidence >= 80%
+11. log(bot_tick, {run_id, managedCount, openedCount, timeframe, data_freshness_sec})
+12. BotRunService::finish(runId, 'done')
+13. Вернуть {ok, run_id, summary, managed[], opened[]}
 ```
 
 ### Трасса решений (LLM observability)
@@ -580,8 +654,8 @@ CSS построен на custom properties:
 Каждое выполненное событие содержит:
 - `confidence` (0-100), `reason`, `risk` (low/medium/high)
 - `checks` (pnl_positive, trend, averaging_allowed)
-- `prompt_version` (`manage_v3`), `provider` (chatgpt/deepseek)
-- `skip_reason` (если пропущено: `locked` / `cooldown` / `strict_mode_pending` / `already_averaged`)
+- `prompt_version` (`manage_v3.1`), `schema_version` (`schema_v3`), `prompt_checksum`, `provider` (chatgpt/deepseek)
+- `skip_reason` (если пропущено: `locked` / `cooldown` / `min_edge` / `canary_mode` / `strict_mode_pending` / `already_averaged`)
 - `pnlAtDecision`, `realizedPnlEstimate`
 
 ---
@@ -769,6 +843,7 @@ powershell -Command "Invoke-WebRequest -Uri 'http://localhost/api/bot/tick' -Met
 | `var/bot_runs.json` | История запусков тика (идемпотентность) | 200 записей |
 | `var/position_locks.json` | Заблокированные позиции | — |
 | `var/pending_actions.json` | Ожидают подтверждения (strict mode) | TTL 60 мин |
+| `var/circuit_breaker.json` | Состояние CB-автоматов (consecutive, tripped_at, cooldown_until) | TTL = cooldown_minutes |
 | `var/bybit_time_offset.json` | Кеш сдвига часов с Bybit | TTL 5 мин |
 | `var/instrument_cache.json` | Кеш параметров инструментов | TTL 1 ч / запись |
 
@@ -836,5 +911,8 @@ vendor/          ← зависимости Composer
 **TradingView:**
 - Некоторые символы (1000PEPEUSDT) не поддерживаются виджетом — ожидаемо
 
-**Комиссии:**
-- ~0.06% открытие + ~0.06% закрытие; учитываются в промпте LLM
+**Комиссии и издержки:**
+- Fees ~0.06%/side (Bybit linear taker). Учитываются в CostEstimatorService.
+- Slippage: half-spread из bid1/ask1. Funding: rate × notional × horizon.
+- Min-edge check: закрытие блокируется, если PnL < (fees+slippage+funding) × `min_edge_multiplier`.
+- `totalFees` в `/api/statistics` — сумма `execFee` по execution list (если Bybit возвращает).

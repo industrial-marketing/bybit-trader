@@ -6,19 +6,11 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class ChatGPTService
 {
-    /**
-     * Prompt version written into every bot history event.
-     * Bump when the manageOpenPositions prompt schema changes.
-     */
-    private const MANAGE_PROMPT_VERSION = 'manage_v3';
+    private const STRATEGY_VERSION = 'manage_v3.1';
+    private const SCHEMA_VERSION  = 'schema_v3';
 
-    /**
-     * Required top-level keys in each LLM decision object.
-     * Missing/invalid → DO_NOTHING + alert.
-     */
     private const REQUIRED_DECISION_FIELDS = ['symbol', 'action', 'confidence', 'reason', 'risk'];
 
-    /** Valid action values */
     private const VALID_ACTIONS = [
         'CLOSE_FULL', 'CLOSE_PARTIAL', 'MOVE_STOP_TO_BREAKEVEN', 'AVERAGE_IN_ONCE', 'DO_NOTHING',
     ];
@@ -27,12 +19,26 @@ class ChatGPTService
         private readonly HttpClientInterface $httpClient,
         private readonly SettingsService    $settingsService,
         private readonly BotHistoryService  $botHistory,
-        private readonly AlertService       $alertService
+        private readonly AlertService       $alertService,
+        private readonly CostEstimatorService $costEstimator,
     ) {}
 
     private function log(string $message): void
     {
         LogSanitizer::log('LLM', $message, $this->settingsService);
+    }
+
+    public static function getVersionInfo(): array
+    {
+        return [
+            'strategy_version' => self::STRATEGY_VERSION,
+            'schema_version'   => self::SCHEMA_VERSION,
+        ];
+    }
+
+    public function isCanaryMode(): bool
+    {
+        return (bool)($this->settingsService->getTradingSettings()['canary_mode'] ?? false);
     }
 
     private function hasAnyProvider(): bool
@@ -146,16 +152,24 @@ class ChatGPTService
         }
         $tfLabel = $tfMinutes > 0 ? "{$tfMinutes}min" : 'unknown';
 
-        // Build position lines
+        // Build position lines with cost estimate
         $lines = [];
         foreach ($positions as $p) {
-            $hist   = $p['priceHistory'] ?? 'no market history';
+            $hist     = $p['priceHistory'] ?? 'no market history';
+            $symbol   = $p['symbol'] ?? 'UNKNOWN';
+            $size     = (float)($p['size'] ?? 0);
+            $mark     = (float)($p['markPrice'] ?? $p['entryPrice'] ?? 0);
+            $notional = $size * $mark;
+            $costEst  = $this->costEstimator->estimateTotalCost($notional, $symbol, false, 0);
+            $costStr  = sprintf('est_cost_roundtrip=%.2f USDT (fees+slip+fund)', $costEst['total_usdt']);
+
             $lines[] = sprintf(
-                "%s side=%s size=%s entry=%s mark=%s pnl=%s lev=%sx opened=%s\n  market_hist(%s): %s",
-                $p['symbol'] ?? 'UNKNOWN', $p['side'] ?? '',
+                "%s side=%s size=%s entry=%s mark=%s pnl=%s lev=%sx opened=%s | %s\n  market_hist(%s): %s",
+                $symbol, $p['side'] ?? '',
                 $p['size'] ?? '0', $p['entryPrice'] ?? '0',
                 $p['markPrice'] ?? '0', $p['unrealizedPnl'] ?? '0',
                 $p['leverage'] ?? '1', $p['openedAt'] ?? '',
+                $costStr,
                 $tfLabel, $hist
             );
         }
@@ -206,7 +220,8 @@ JSON;
         $prompt .= "\n\nBOT HISTORY (last 7 days):\n" . $historyContext;
         $prompt .= "\nAveraged in last 7 days: {$averagedList}.\n\n";
         $prompt .= "RULES:\n";
-        $prompt .= "- Fees ≈ 0.06 %/side; avoid tiny-edge trades.\n";
+        $prompt .= "- Each position shows est_cost_roundtrip (fees + slippage + funding). Edge must exceed costs × 2.\n";
+        $prompt .= "- Fees ≈ 0.12% round-trip; + slippage + funding. Avoid tiny-edge trades (PnL near 0).\n";
         $prompt .= "- Only AVERAGE_IN_ONCE if symbol NOT in averaged list AND you see a strong edge.\n";
         $prompt .= "- CLOSE_PARTIAL fraction must be 0.1–0.5.\n";
         $prompt .= "- Fill checks.pnl_positive from position pnl field.\n\n";
@@ -243,22 +258,23 @@ JSON;
             2000
         );
 
+        $promptChecksum = substr(md5($prompt), 0, 8);
+
         $rawContent = $result['content'];
         $provider   = $result['provider'] ?? 'unknown';
 
         if ($rawContent === null) {
-            // LLM completely failed — alerts already sent in requestLLMRaw
             return [];
         }
 
-        return $this->parseManageResponse($rawContent, $positions, $provider);
+        return $this->parseManageResponse($rawContent, $positions, $provider, $promptChecksum);
     }
 
     /**
      * Parse and validate LLM response against strict schema.
      * Any item failing validation is replaced with DO_NOTHING + llm_raw stored.
      */
-    private function parseManageResponse(string $raw, array $positions, string $provider): array
+    private function parseManageResponse(string $raw, array $positions, string $provider, string $promptChecksum = ''): array
     {
         $out       = [];
         $arr       = null;
@@ -277,7 +293,7 @@ JSON;
             $this->log('Invalid LLM JSON (raw): ' . mb_substr($raw, 0, 300));
             $this->botHistory->log('llm_invalid_response', [
                 'raw'            => mb_substr($raw, 0, 500),
-                'prompt_version' => self::MANAGE_PROMPT_VERSION,
+                'prompt_version' => self::STRATEGY_VERSION,
                 'provider'       => $provider,
             ]);
             foreach ($positions as $p) {
@@ -308,7 +324,7 @@ JSON;
                     'symbol'         => $sym,
                     'missing_fields' => $missingFields,
                     'raw_item'       => mb_substr(json_encode($item), 0, 300),
-                    'prompt_version' => self::MANAGE_PROMPT_VERSION,
+                    'prompt_version' => self::STRATEGY_VERSION,
                     'provider'       => $provider,
                 ]);
                 $out[] = $this->doNothingDecision($sym, 'schema_violation', json_encode($item), $provider);
@@ -335,10 +351,13 @@ JSON;
                 ],
                 'close_fraction'      => $closeFraction,
                 'average_size_usdt'   => $avgSize,
-                'note'                => (string)($item['reason'] ?? ''), // backward compat
-                'prompt_version'      => self::MANAGE_PROMPT_VERSION,
+                'note'                => (string)($item['reason'] ?? ''),
+                'prompt_version'      => self::STRATEGY_VERSION,
+                'schema_version'      => self::SCHEMA_VERSION,
+                'prompt_checksum'     => $promptChecksum,
+                'canary'              => $this->isCanaryMode(),
                 'provider'            => $provider,
-                'llm_raw'             => null, // valid → no raw needed
+                'llm_raw'             => null,
             ];
         }
 
@@ -357,7 +376,7 @@ JSON;
             'close_fraction'     => null,
             'average_size_usdt'  => null,
             'note'               => '',
-            'prompt_version'     => self::MANAGE_PROMPT_VERSION,
+            'prompt_version'     => self::STRATEGY_VERSION,
             'provider'           => $provider,
             'llm_raw'            => mb_substr($raw, 0, 300),
         ];

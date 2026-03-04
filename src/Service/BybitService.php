@@ -394,7 +394,6 @@ class BybitService
         $settings = $this->settingsService->getBybitSettings();
         $baseUrl  = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
 
-        // Use canonical USDT symbol for market data
         $querySymbol = $this->toCanonicalSymbol($symbol);
 
         try {
@@ -404,7 +403,6 @@ class BybitService
             $data = $response->toArray(false);
             if (($data['retCode'] ?? -1) === 0 && isset($data['result']['list'][0])) {
                 $item = $data['result']['list'][0];
-                // Inject the original symbol so callers can reference it
                 $item['_originalSymbol'] = $symbol;
                 return $item;
             }
@@ -413,6 +411,44 @@ class BybitService
             $this->log('getMarketData Error: ' . $e->getMessage());
             return [];
         }
+    }
+
+    /**
+     * Cost-related ticker data for position management.
+     *
+     * Returns: fundingRate (decimal), spreadPct, markPrice, bid1Price, ask1Price.
+     * Used by CostEstimatorService for min-edge checks.
+     */
+    public function getTickerCostInfo(string $symbol): array
+    {
+        $ticker = $this->getMarketData($symbol);
+        if (empty($ticker)) {
+            return [
+                'fundingRate'  => 0.0,
+                'spreadPct'   => 0.001,  // fallback 0.1%
+                'markPrice'   => 0.0,
+                'bid1Price'   => 0.0,
+                'ask1Price'   => 0.0,
+            ];
+        }
+
+        $mark   = (float)($ticker['markPrice']   ?? $ticker['lastPrice'] ?? 0);
+        $bid1   = (float)($ticker['bid1Price']  ?? 0);
+        $ask1   = (float)($ticker['ask1Price']  ?? 0);
+        $funding= (float)($ticker['fundingRate'] ?? 0);
+
+        $spreadPct = 0.001;
+        if ($mark > 0 && $bid1 > 0 && $ask1 > 0) {
+            $spreadPct = (($ask1 - $bid1) / $mark);
+        }
+
+        return [
+            'fundingRate' => $funding,
+            'spreadPct'   => round($spreadPct, 6),
+            'markPrice'   => $mark,
+            'bid1Price'   => $bid1,
+            'ask1Price'   => $ask1,
+        ];
     }
 
     public function getBalance(): array
@@ -692,7 +728,7 @@ class BybitService
 
         if (empty($trades)) {
             return [
-                'totalTrades' => 0, 'winRate' => 0.0, 'totalProfit' => 0.0,
+                'totalTrades' => 0, 'winRate' => 0.0, 'totalProfit' => 0.0, 'totalFees' => 0.0,
                 'averageProfit' => 0.0, 'maxDrawdown' => 0.0, 'profitFactor' => 0.0,
                 'winningTrades' => 0, 'losingTrades' => 0,
             ];
@@ -704,6 +740,7 @@ class BybitService
         $losingTrades  = array_filter($closedTrades, fn($t) => (float)($t['closedPnl'] ?? 0) < 0);
 
         $totalProfit = array_sum(array_map(fn($t) => (float)($t['closedPnl'] ?? 0), $closedTrades));
+        $totalFees   = array_sum(array_map(fn($t) => (float)($t['execFee'] ?? 0), $trades));
         $winRate     = $totalTrades > 0 ? (count($winningTrades) / $totalTrades) * 100 : 0;
         $avgProfit   = $totalTrades > 0 ? $totalProfit / $totalTrades : 0;
         $profits     = array_map(fn($t) => (float)($t['closedPnl'] ?? 0), $closedTrades);
@@ -716,6 +753,7 @@ class BybitService
             'totalTrades'    => $totalTrades,
             'winRate'        => round($winRate, 2),
             'totalProfit'    => round($totalProfit, 2),
+            'totalFees'      => round($totalFees, 2),
             'averageProfit'  => round($avgProfit, 2),
             'maxDrawdown'    => round($maxDrawdown, 2),
             'profitFactor'   => round($profitFactor, 2),
@@ -1015,6 +1053,7 @@ class BybitService
             'price'     => $t['execPrice']  ?? '0',
             'quantity'  => $t['execQty']    ?? '0',
             'closedPnl' => $t['closedPnl']  ?? null,
+            'execFee'   => isset($t['execFee']) ? (float)$t['execFee'] : null,
             'status'    => $t['execStatus'] ?? 'Unknown',
             'openedAt'  => isset($t['execTime'])
                 ? date('Y-m-d H:i:s', (int)$t['execTime'] / 1000)

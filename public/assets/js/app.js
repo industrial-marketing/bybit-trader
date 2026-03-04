@@ -333,6 +333,9 @@ function loadStatistics() {
             const totalProfit = parseFloat(data.totalProfit);
             $('#stat-total-profit').text('$' + totalProfit.toFixed(2));
             $('#stat-total-profit').removeClass('profit loss').addClass(totalProfit >= 0 ? 'profit' : 'loss');
+
+            const totalFees = parseFloat(data.totalFees ?? 0);
+            $('#stat-total-fees').text('$' + totalFees.toFixed(2));
             
             $('#stat-avg-profit').text('$' + data.averageProfit.toFixed(2));
             

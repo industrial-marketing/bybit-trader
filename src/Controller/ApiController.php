@@ -8,6 +8,8 @@ use App\Service\BotMetricsService;
 use App\Service\BotRunService;
 use App\Service\BybitService;
 use App\Service\ChatGPTService;
+use App\Service\CircuitBreakerService;
+use App\Service\CostEstimatorService;
 use App\Service\ExecutionGuardService;
 use App\Service\PendingActionsService;
 use App\Service\PositionLockService;
@@ -33,6 +35,8 @@ class ApiController extends AbstractController
         private readonly AlertService          $alertService,
         private readonly BotRunService         $botRunService,
         private readonly ExecutionGuardService $executionGuard,
+        private readonly CircuitBreakerService $circuitBreaker,
+        private readonly CostEstimatorService  $costEstimator,
     ) {}
 
     // ── Positions / orders / trades ───────────────────────────────
@@ -167,6 +171,17 @@ class ApiController extends AbstractController
             ]);
         }
 
+        // ── Circuit Breaker ──────────────────────────────────────────
+        $cbStatus = $this->circuitBreaker->getStatus();
+        if ($cbStatus['is_open']) {
+            return $this->json([
+                'ok' => false, 'blocked' => true, 'reason' => 'circuit_breaker',
+                'message' => $cbStatus['message'],
+                'circuit_breaker' => $cbStatus,
+                'managed' => [], 'opened' => [],
+            ]);
+        }
+
         $trading        = $this->settingsService->getTradingSettings();
         $autoEnabled    = $trading['auto_open_enabled']     ?? false;
         $minPositions   = max(0, (int)($trading['auto_open_min_positions'] ?? 5));
@@ -297,14 +312,15 @@ class ApiController extends AbstractController
             $side           = $position['side'] ?? '';
             $pnlAtDecision  = isset($position['unrealizedPnl']) ? (float)$position['unrealizedPnl'] : null;
 
-            // Common trace fields from LLM decision
             $traceFields = [
-                'confidence'      => $d['confidence']     ?? null,
-                'reason'          => $d['reason']         ?? ($d['note'] ?? ''),
-                'risk'            => $d['risk']           ?? null,
-                'checks'          => $d['checks']         ?? null,
-                'prompt_version'  => $d['prompt_version'] ?? null,
-                'provider'        => $d['provider']       ?? null,
+                'confidence'      => $d['confidence']      ?? null,
+                'reason'          => $d['reason']          ?? ($d['note'] ?? ''),
+                'risk'            => $d['risk']            ?? null,
+                'checks'          => $d['checks']          ?? null,
+                'prompt_version'  => $d['prompt_version']  ?? null,
+                'schema_version'  => $d['schema_version']  ?? null,
+                'prompt_checksum' => $d['prompt_checksum'] ?? null,
+                'provider'        => $d['provider']        ?? null,
             ];
 
             // ── Locked ───────────────────────────────────────────────
@@ -325,7 +341,29 @@ class ApiController extends AbstractController
                 continue;
             }
 
-            // ── Strict mode ──────────────────────────────────────────
+            // ── Canary mode — ALL actions go to pending ──────────────
+            $isCanary = $d['canary'] ?? false;
+            if ($isCanary) {
+                if (!$this->pendingActions->hasPending($symbol, $action)) {
+                    $pndId = $this->pendingActions->add([
+                        'symbol'            => $symbol,
+                        'side'              => $side,
+                        'action'            => $action,
+                        'note'              => $d['note'] ?? '',
+                        'close_fraction'    => $d['close_fraction']   ?? 0.5,
+                        'average_size_usdt' => $d['average_size_usdt'] ?? 10.0,
+                        'pnlAtDecision'     => $pnlAtDecision,
+                    ]);
+                    $managed[] = array_merge($traceFields, [
+                        'symbol' => $symbol, 'side' => $side, 'action' => $action,
+                        'ok' => true, 'pending' => true, 'pending_id' => $pndId,
+                        'skip_reason' => 'canary_mode',
+                    ]);
+                }
+                continue;
+            }
+
+            // ── Strict mode — dangerous actions go to pending ────────
             if ($strictMode && $this->riskGuard->isDangerousAction($action)) {
                 if (!$this->pendingActions->hasPending($symbol, $action)) {
                     $pndId = $this->pendingActions->add([
@@ -355,9 +393,23 @@ class ApiController extends AbstractController
             $guardResult = null;
 
             if ($action === 'CLOSE_FULL' || $action === 'CLOSE_PARTIAL') {
-                $fraction    = $action === 'CLOSE_FULL' ? 1.0 : (float)($d['close_fraction'] ?? 0.5);
-                $sizeBefore  = (float)($position['size'] ?? 0);
-                $result      = $this->bybitService->closePositionMarket($symbol, $side, $fraction);
+                $fraction   = $action === 'CLOSE_FULL' ? 1.0 : (float)($d['close_fraction'] ?? 0.5);
+                $sizeBefore = (float)($position['size'] ?? 0);
+                $notional   = $sizeBefore * (float)($position['markPrice'] ?? $position['entryPrice'] ?? 0) * $fraction;
+                $edgeUsdt   = $pnlAtDecision !== null ? ($action === 'CLOSE_FULL' ? $pnlAtDecision : $pnlAtDecision * $fraction) : 0;
+
+                $costEst   = $this->costEstimator->estimateTotalCost($notional, $symbol, false, 0);
+                $edgeCheck = $this->costEstimator->checkMinimumEdge($edgeUsdt, $costEst['total_usdt']);
+                if (!$edgeCheck['ok']) {
+                    $managed[] = array_merge($traceFields, [
+                        'symbol' => $symbol, 'side' => $side, 'action' => $action,
+                        'ok' => false, 'skipped' => true, 'skip_reason' => 'min_edge',
+                        'min_edge_detail' => $edgeCheck,
+                    ]);
+                    continue;
+                }
+
+                $result = $this->bybitService->closePositionMarket($symbol, $side, $fraction);
                 if (!empty($result['skipped'])) {
                     $eventType  = 'close_partial_skip';
                     $skipReason = $result['skipReason'] ?? 'position_too_small';
@@ -656,6 +708,37 @@ class ApiController extends AbstractController
         $this->botHistory->log($eventType, $payload);
 
         return $this->json(['ok' => true, 'result' => 'executed', 'details' => $payload]);
+    }
+
+    // ── Circuit Breaker ───────────────────────────────────────────
+
+    #[Route('/bot/circuit-breaker', name: 'api_circuit_breaker_status', methods: ['GET'])]
+    public function getCircuitBreakerStatus(): JsonResponse
+    {
+        return $this->json($this->circuitBreaker->getStatus());
+    }
+
+    #[Route('/bot/circuit-breaker/reset', name: 'api_circuit_breaker_reset', methods: ['POST'])]
+    public function resetCircuitBreaker(Request $request): JsonResponse
+    {
+        $data = json_decode($request->getContent(), true) ?? [];
+        $type = $data['type'] ?? null;
+
+        if ($type !== null && !in_array($type, [
+            CircuitBreakerService::TYPE_BYBIT,
+            CircuitBreakerService::TYPE_LLM,
+            CircuitBreakerService::TYPE_LLM_INVALID,
+        ], true)) {
+            return $this->json(['ok' => false, 'error' => "Unknown type: {$type}"]);
+        }
+
+        $this->circuitBreaker->reset($type);
+        $this->botHistory->log('circuit_breaker_reset', [
+            'type'      => $type ?? 'all',
+            'reset_by'  => 'user',
+        ]);
+
+        return $this->json(['ok' => true, 'reset' => $type ?? 'all', 'status' => $this->circuitBreaker->getStatus()]);
     }
 
     // ── Settings ──────────────────────────────────────────────────

@@ -11,8 +11,9 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 class AlertService
 {
     public function __construct(
-        private readonly HttpClientInterface $httpClient,
-        private readonly SettingsService    $settingsService
+        private readonly HttpClientInterface   $httpClient,
+        private readonly SettingsService       $settingsService,
+        private readonly CircuitBreakerService $circuitBreaker,
     ) {}
 
     private function cfg(): array
@@ -24,6 +25,10 @@ class AlertService
 
     public function alertLLMFailure(string $provider, string $error): void
     {
+        $this->circuitBreaker->recordFailure(
+            CircuitBreakerService::TYPE_LLM,
+            "LLM failure ({$provider}): " . mb_substr($error, 0, 100)
+        );
         if ($this->cfg()['on_llm_failure'] ?? true) {
             $this->send('ERROR', "LLM failure ({$provider})", ['error' => mb_substr($error, 0, 300)]);
         }
@@ -31,6 +36,10 @@ class AlertService
 
     public function alertInvalidResponse(string $symbol, string $raw): void
     {
+        $this->circuitBreaker->recordFailure(
+            CircuitBreakerService::TYPE_LLM_INVALID,
+            "Invalid LLM response for {$symbol}"
+        );
         if ($this->cfg()['on_invalid_response'] ?? true) {
             $this->send('WARN', "Invalid LLM response for {$symbol}", ['raw_preview' => mb_substr($raw, 0, 200)]);
         }
@@ -45,6 +54,10 @@ class AlertService
 
     public function alertBybitError(string $method, string $error, int $retCode = 0): void
     {
+        $this->circuitBreaker->recordFailure(
+            CircuitBreakerService::TYPE_BYBIT,
+            "Bybit error [{$method}] retCode={$retCode}: " . mb_substr($error, 0, 100)
+        );
         if ($this->cfg()['on_bybit_error'] ?? true) {
             $this->send('ERROR', "Bybit API error [{$method}]", [
                 'retCode' => $retCode ?: 'n/a',
