@@ -40,11 +40,13 @@ class SettingsService
                 'api_key' => '',
                 'model'   => 'gpt-4',
                 'enabled' => false,
+                'timeout' => 60,
             ],
             'deepseek' => [
                 'api_key' => '',
                 'model'   => 'deepseek-chat',
                 'enabled' => false,
+                'timeout' => 120,
             ],
             'trading' => [
                 'max_position_usdt'        => 100.0,

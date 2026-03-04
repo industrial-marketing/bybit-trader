@@ -61,6 +61,10 @@
                 </select>
             </div>
             <div class="form-group">
+                <label>Таймаут (сек):</label>
+                <input type="number" id="chatgpt-timeout" name="timeout" min="15" max="300" step="5" placeholder="60">
+            </div>
+            <div class="form-group">
                 <input type="checkbox" id="chatgpt-enabled" name="enabled">
                 <span>Использовать ChatGPT для анализа</span>
             </div>
@@ -89,6 +93,10 @@
                     <option value="deepseek-chat">deepseek-chat</option>
                     <option value="deepseek-reasoner">deepseek-reasoner</option>
                 </select>
+            </div>
+            <div class="form-group">
+                <label>Таймаут (сек):</label>
+                <input type="number" id="deepseek-timeout" name="timeout" min="15" max="300" step="5" placeholder="120">
             </div>
             <div class="form-group">
                 <input type="checkbox" id="deepseek-enabled" name="enabled">

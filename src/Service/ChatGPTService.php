@@ -67,10 +67,11 @@ class ChatGPTService
 
         if ($chatOk) {
             try {
+                $timeout = max(15, min(300, (int)($cg['timeout'] ?? 60)));
                 $response = $this->httpClient->request('POST', 'https://api.openai.com/v1/chat/completions', [
                     'headers' => ['Authorization' => 'Bearer ' . $cg['api_key'], 'Content-Type' => 'application/json'],
                     'json'    => ['model' => $cg['model'] ?? 'gpt-4', 'messages' => $messages, 'temperature' => $temperature, 'max_tokens' => $maxTokens],
-                    'timeout' => 60,
+                    'timeout' => $timeout,
                 ]);
                 $data = $response->toArray(false);
                 if (isset($data['choices'][0]['message']['content'])) {
@@ -86,10 +87,11 @@ class ChatGPTService
 
         if ($deepOk) {
             try {
+                $timeout = max(15, min(300, (int)($ds['timeout'] ?? 120)));
                 $response = $this->httpClient->request('POST', 'https://api.deepseek.com/chat/completions', [
                     'headers' => ['Authorization' => 'Bearer ' . $ds['api_key'], 'Content-Type' => 'application/json'],
                     'json'    => ['model' => $ds['model'] ?? 'deepseek-chat', 'messages' => $messages, 'temperature' => $temperature, 'max_tokens' => $maxTokens],
-                    'timeout' => 60,
+                    'timeout' => $timeout,
                 ]);
                 $data = $response->toArray(false);
                 if (isset($data['choices'][0]['message']['content'])) {

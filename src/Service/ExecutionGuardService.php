@@ -76,12 +76,19 @@ class ExecutionGuardService
                 ? "CLOSE_FULL mismatch: position still open after close order. sizeAfter={$sizeAfter} (expected ≈0)"
                 : "CLOSE_FULL confirmed: position closed (sizeAfter={$sizeAfter}).";
         } else {
-            // Expect size reduced by ~fraction
-            $expectedAfter = $sizeBefore * (1.0 - $fraction);
-            $diff          = abs($sizeAfter - $expectedAfter);
-            $tolerance     = $sizeBefore * self::QTY_TOLERANCE;
-            $mismatch      = $diff > $tolerance && $sizeAfter > $sizeBefore * self::QTY_TOLERANCE;
-            $message       = $mismatch
+            // Expected sizeAfter: use executedQty when available (accounts for qtyStep rounding).
+            // Naive fraction-based expectedAfter ignores exchange lot-size rounding and causes false mismatches.
+            $expectedAfter = $executedQty !== null && $executedQty > 0
+                ? $sizeBefore - $executedQty
+                : $sizeBefore * (1.0 - $fraction);
+            $diff      = abs($sizeAfter - $expectedAfter);
+            $tolerance = max($sizeBefore * self::QTY_TOLERANCE, 0.01);
+            // When executedQty unknown: only mismatch if nothing was closed (sizeAfter ≈ sizeBefore).
+            // When executedQty known: mismatch if actual size differs from expected beyond tolerance.
+            $mismatch = $executedQty !== null && $executedQty > 0
+                ? $diff > $tolerance
+                : ($sizeAfter >= $sizeBefore - $tolerance);
+            $message = $mismatch
                 ? "CLOSE_PARTIAL mismatch: sizeAfter={$sizeAfter}, expected≈{$expectedAfter} (sizeBefore={$sizeBefore}, fraction={$fraction})"
                 : "CLOSE_PARTIAL confirmed: size reduced to {$sizeAfter}.";
         }

@@ -603,10 +603,10 @@ CSS построен на custom properties:
 `api_key`, `api_secret`, `testnet` (checkbox), `base_url`
 
 ### ChatGPT API
-`api_key`, `model` (gpt-4o / gpt-4 / gpt-3.5-turbo), `enabled`
+`api_key`, `model` (gpt-4o / gpt-4 / gpt-3.5-turbo), `timeout` (сек, 15–300, default: 60), `enabled`
 
 ### DeepSeek API (fallback)
-`api_key`, `model` (deepseek-chat / deepseek-reasoner), `enabled`
+`api_key`, `model` (deepseek-chat / deepseek-reasoner), `timeout` (сек, 15–300, default: 120), `enabled`
 
 ### Торговые параметры
 | Параметр | Описание |

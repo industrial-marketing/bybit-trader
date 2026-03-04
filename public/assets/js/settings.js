@@ -82,6 +82,7 @@ function loadSettings() {
             if (data.chatgpt) {
                 $('#chatgpt-api-key').val(data.chatgpt.api_key || '');
                 $('#chatgpt-model').val(data.chatgpt.model || 'gpt-4');
+                $('#chatgpt-timeout').val(data.chatgpt.timeout ?? 60);
                 $('#chatgpt-enabled').prop('checked', data.chatgpt.enabled || false);
             }
 
@@ -89,6 +90,7 @@ function loadSettings() {
             if (data.deepseek) {
                 $('#deepseek-api-key').val(data.deepseek.api_key || '');
                 $('#deepseek-model').val(data.deepseek.model || 'deepseek-chat');
+                $('#deepseek-timeout').val(data.deepseek.timeout ?? 120);
                 $('#deepseek-enabled').prop('checked', data.deepseek.enabled || false);
             }
 
@@ -212,6 +214,7 @@ function saveDeepseekSettings() {
         deepseek: {
             api_key: $('#deepseek-api-key').val(),
             model: $('#deepseek-model').val(),
+            timeout: parseInt($('#deepseek-timeout').val(), 10) || 120,
             enabled: $('#deepseek-enabled').is(':checked')
         }
     };
