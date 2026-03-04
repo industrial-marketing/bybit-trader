@@ -154,6 +154,7 @@ function loadSettings() {
                 $('#alerts-bybit-error').prop('checked', !!data.alerts.on_bybit_error);
                 $('#alerts-repeated').prop('checked', data.alerts.on_repeated_failures !== false);
                 $('#alerts-threshold').val(data.alerts.repeated_failure_threshold || 3);
+                $('#alerts-repeated-cooldown').val(data.alerts.repeated_failure_cooldown_minutes ?? 60);
             }
         })
         .fail(function(xhr) {
@@ -361,7 +362,8 @@ function saveAlertsSettings() {
             on_risk_limit:              $('#alerts-risk-limit').is(':checked'),
             on_bybit_error:             $('#alerts-bybit-error').is(':checked'),
             on_repeated_failures:       $('#alerts-repeated').is(':checked'),
-            repeated_failure_threshold: parseInt($('#alerts-threshold').val() || '3', 10)
+            repeated_failure_threshold: parseInt($('#alerts-threshold').val() || '3', 10),
+            repeated_failure_cooldown_minutes: parseInt($('#alerts-repeated-cooldown').val() || '60', 10)
         }
     };
     $.ajax({ url: '/api/settings', method: 'POST', contentType: 'application/json', data: JSON.stringify(settings) })

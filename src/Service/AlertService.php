@@ -10,10 +10,13 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  */
 class AlertService
 {
+    private const COOLDOWN_FILE = 'alert_repeated_cooldowns.json';
+
     public function __construct(
         private readonly HttpClientInterface   $httpClient,
         private readonly SettingsService       $settingsService,
         private readonly CircuitBreakerService $circuitBreaker,
+        private readonly string                $projectDir,
     ) {}
 
     private function cfg(): array
@@ -70,8 +73,46 @@ class AlertService
     {
         $threshold = (int)($this->cfg()['repeated_failure_threshold'] ?? 3);
         if (($this->cfg()['on_repeated_failures'] ?? true) && $count >= $threshold) {
+            $cooldownMin = max(1, (int)($this->cfg()['repeated_failure_cooldown_minutes'] ?? 60));
+            if ($this->checkRepeatedCooldown($symbol, $cooldownMin)) {
+                return;
+            }
             $this->send('ERROR', "Repeated failures for {$symbol}", ['consecutive_errors' => $count]);
+            $this->saveRepeatedCooldown($symbol);
         }
+    }
+
+    private function getCooldownPath(): string
+    {
+        $varDir = $_ENV['VAR_DIR'] ?? $_SERVER['VAR_DIR'] ?? ($this->projectDir . DIRECTORY_SEPARATOR . 'var');
+        return rtrim($varDir, '/\\') . DIRECTORY_SEPARATOR . self::COOLDOWN_FILE;
+    }
+
+    private function checkRepeatedCooldown(string $symbol, int $cooldownMinutes): bool
+    {
+        $path = $this->getCooldownPath();
+        $data = AtomicFileStorage::read($path);
+        $key  = 'repeated_' . $symbol;
+        $last = $data[$key] ?? null;
+        if ($last === null) {
+            return false;
+        }
+        try {
+            $lastTs = is_numeric($last) ? (int)$last : strtotime($last);
+            return (time() - $lastTs) < $cooldownMinutes * 60;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function saveRepeatedCooldown(string $symbol): void
+    {
+        $path = $this->getCooldownPath();
+        $key  = 'repeated_' . $symbol;
+        AtomicFileStorage::update($path, function (array $data) use ($key): array {
+            $data[$key] = time();
+            return $data;
+        });
     }
 
     // ── Core send ─────────────────────────────────────────────────

@@ -380,6 +380,7 @@ bybit_trader/
 - `webhook_url`
 - Флаги: `on_llm_failure`, `on_invalid_response`, `on_risk_limit`, `on_bybit_error`, `on_repeated_failures`
 - `repeated_failure_threshold` — порог повторяющихся ошибок подряд
+- `repeated_failure_cooldown_minutes` — не дублировать алерт по одному символу чаще чем раз в N мин (default: 60)
 
 **Методы:** `alertLLMFailure()`, `alertInvalidResponse()`, `alertRiskLimit()`, `alertBybitError()`, `alertRepeatedFailures()`, `send(level, message, context)`.
 

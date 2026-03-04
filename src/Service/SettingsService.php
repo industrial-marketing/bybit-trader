@@ -76,6 +76,7 @@ class SettingsService
                 'on_bybit_error'             => false,
                 'on_repeated_failures'       => true,
                 'repeated_failure_threshold' => 3,
+                'repeated_failure_cooldown_minutes' => 60,
             ],
             // ── Strategy Signals ─────────────────────────────────────────
             'strategies' => [
