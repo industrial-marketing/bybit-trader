@@ -286,6 +286,9 @@ JSON;
             $prompt .= "STRICT OUTPUT CONTRACT: JSON array with EXACTLY {$posCount} elements in order [{$orderHint}]. Each:\n{$schema}\nNo extra text.";
         }
 
+        // Ensure enough tokens for N positions (~300 tokens per decision)
+        $maxTokens = max(2000, 800 + $posCount * 350);
+
         $result = $this->requestLLMRaw(
             'manage_positions',
             [
@@ -293,7 +296,7 @@ JSON;
                 ['role' => 'user',   'content' => $prompt],
             ],
             0.4,
-            2000
+            $maxTokens
         );
 
         $promptChecksum = substr(md5($prompt), 0, 8);
@@ -354,6 +357,7 @@ JSON;
         $arrCount   = count($arr);
         $posCount   = count($positions);
 
+        $countMismatchAlerted = false;
         if ($arrCount !== $posCount) {
             $this->log("LLM returned {$arrCount} items for {$posCount} positions — alignment may be wrong");
         }
@@ -367,7 +371,14 @@ JSON;
                     ? "LLM returned only {$arrCount} items for {$posCount} positions (missing index {$idx})"
                     : 'no_response_item';
                 $this->log("Invalid LLM decision for {$sym}: {$reason}");
-                $this->alertService->alertInvalidResponse($sym, "count_mismatch: got {$arrCount}, need {$posCount}. First: " . mb_substr(json_encode($arr[0] ?? []), 0, 150));
+                // One alert for count mismatch, not one per missing position
+                if (!$countMismatchAlerted) {
+                    $this->alertService->alertInvalidResponse(
+                        "count_mismatch ({$arrCount}/{$posCount})",
+                        "LLM returned {$arrCount} items for {$posCount} positions. Expected: " . implode(', ', array_slice($posSymbols, 0, 12)) . ($posCount > 12 ? '...' : '') . ". First: " . mb_substr(json_encode($arr[0] ?? []), 0, 100)
+                    );
+                    $countMismatchAlerted = true;
+                }
                 $this->botHistory->log('llm_invalid_response', [
                     'symbol'    => $sym,
                     'reason'    => $reason,
