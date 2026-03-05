@@ -289,11 +289,13 @@ function saveRiskSettings() {
 }
 
 function showMessage(text, type) {
-    const $message = $('#settings-message');
-    $message.removeClass('success error').addClass(type).text(text).fadeIn();
-    setTimeout(function() {
-        $message.fadeOut();
-    }, 3000);
+    if (typeof window.showToast === 'function') {
+        window.showToast(text, type || 'info');
+    } else {
+        const $message = $('#settings-message');
+        $message.removeClass('success error').addClass(type).text(text).fadeIn();
+        setTimeout(function() { $message.fadeOut(); }, 3000);
+    }
 }
 
 function testBybitConnection() {

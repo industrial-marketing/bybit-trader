@@ -16,6 +16,20 @@
 
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="/assets/lib/jquery.min.js"></script>
+    <script>
+    window.showToast = function(text, type) {
+        type = type || 'info';
+        var $c = $('#toast-container');
+        if (!$c.length) return;
+        var $t = $('<div class="toast toast-' + type + '"></div>').text(text);
+        $c.append($t);
+        setTimeout(function() { $t.addClass('toast-show'); }, 10);
+        setTimeout(function() {
+            $t.addClass('toast-hide');
+            setTimeout(function() { $t.remove(); }, 300);
+        }, 4000);
+    };
+    </script>
     {% block scripts %}{% endblock %}
 </head>
 <body>
@@ -63,6 +77,8 @@
             </ul>
         </div>
     </nav>
+    <div id="toast-container" class="toast-container"></div>
+
     <div class="container" style="padding-top: 8px; padding-bottom: 40px;">
         {% block content %}{% endblock %}
     </div>

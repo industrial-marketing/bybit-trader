@@ -237,7 +237,14 @@
                 <i class="bi bi-bug"></i> Диагностика
             </button>
         </div>
-        <div id="positions-debug-output" style="display:none; margin:8px 0; padding:10px; background:rgba(0,0,0,0.2); border-radius:8px; font-family:monospace; font-size:0.8rem;"></div>
+        <div id="positions-debug-modal" class="modal" style="display:none;">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content" style="max-width:520px; max-height:80vh; overflow:auto;">
+                <h3><i class="bi bi-bug"></i> Диагностика позиций</h3>
+                <pre id="positions-debug-output" style="margin:12px 0; padding:12px; background:rgba(0,0,0,0.3); border-radius:8px; font-size:12px; white-space:pre-wrap; word-break:break-all;"></pre>
+                <button type="button" class="btn-secondary" id="positions-debug-close">Закрыть</button>
+            </div>
+        </div>
         <div class="table-container">
             <table id="positions-table">
                 <thead>

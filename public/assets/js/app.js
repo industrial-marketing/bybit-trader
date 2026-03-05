@@ -143,8 +143,10 @@ $(document).ready(function() {
     });
 
     $('#positions-debug-btn').on('click', function() {
+        const $modal = $('#positions-debug-modal');
         const $out = $('#positions-debug-output');
-        $out.show().html('Загрузка...');
+        $modal.show();
+        $out.html('Загрузка...');
         $.get('/api/positions/debug')
             .done(function(d) {
                 const lines = [
@@ -156,11 +158,15 @@ $(document).ready(function() {
                     'nextPageCursor: ' + (d.nextPageCursor ? 'есть (ещё страницы!)' : 'нет'),
                     d.error ? 'error: ' + d.error : ''
                 ].filter(Boolean);
-                $out.html(lines.join('\n'));
+                $out.text(lines.join('\n'));
             })
             .fail(function(xhr) {
-                $out.html('Ошибка: ' + (xhr.responseJSON?.error || xhr.statusText || xhr.status));
+                $out.text('Ошибка: ' + (xhr.responseJSON?.error || xhr.statusText || xhr.status));
             });
+    });
+
+    $('#positions-debug-close, #positions-debug-modal .modal-backdrop').on('click', function() {
+        $('#positions-debug-modal').hide();
     });
 
     $('#modal-submit-btn').on('click', function() {
@@ -508,6 +514,9 @@ function runBotTick() {
             $('#bot-status-message').html(
                 `<div class="bot-alert ${alertClass}"><i class="bi ${alertIcon}"></i><span>${msg}</span></div>`
             );
+            if (typeof window.showToast === 'function') {
+                window.showToast(msg, res && res.skipped ? 'info' : 'success');
+            }
             // Лёгкий визуальный фидбек через текст кнопки
             $btn.text('Готово');
             // Обновим данные на дашборде после действий бота
@@ -523,6 +532,9 @@ function runBotTick() {
             $('#bot-status-message').html(
                 `<div class="bot-alert error"><i class="bi bi-exclamation-triangle-fill"></i><span>Ошибка запуска бота</span></div>`
             );
+            if (typeof window.showToast === 'function') {
+                window.showToast('Ошибка запуска бота', 'error');
+            }
             $btn.text('Ошибка');
             setTimeout(function() {
                 $btn.text(originalText);
