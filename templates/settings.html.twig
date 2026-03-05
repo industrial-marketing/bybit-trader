@@ -122,6 +122,11 @@
                 <input type="number" step="0.01" min="0" id="trading-max-position" name="max_position_usdt" placeholder="Например, 100">
             </div>
             <div class="form-group">
+                <label>Минимальный размер сделки (USDT):</label>
+                <input type="number" step="0.01" min="0" id="trading-min-position" name="min_position_usdt" placeholder="Например, 10">
+                <span class="hint">Не открывать и не делать частичное закрытие ниже этой суммы. Фильтр микросделок.</span>
+            </div>
+            <div class="form-group">
                 <label>Минимальное плечо:</label>
                 <input type="number" min="1" id="trading-min-leverage" name="min_leverage" placeholder="Например, 1">
             </div>

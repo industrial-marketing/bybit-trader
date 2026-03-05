@@ -475,7 +475,8 @@ class ApiController extends AbstractController
             } elseif ($action === 'AVERAGE_IN_ONCE') {
                 if (!isset($alreadyAveraged[$symbol])) {
                     $sizeBefore = (float)($position['size'] ?? 0);
-                    $sizeUsdt   = max(1.0, (float)($d['average_size_usdt'] ?? 10.0));
+                    $minPos     = max(1.0, (float)($trading['min_position_usdt'] ?? 10));
+                    $sizeUsdt   = max($minPos, (float)($d['average_size_usdt'] ?? 10.0));
                     $lev        = max(1, (int)($position['leverage'] ?? 1));
                     $bybitSide  = strtoupper($side) === 'BUY' ? 'BUY' : 'SELL';
                     $result     = $this->bybitService->placeOrder($symbol, $bybitSide, $sizeUsdt, $lev);
@@ -708,11 +709,12 @@ class ApiController extends AbstractController
             return $this->json(['ok' => false, 'error' => 'Торговля отключена (kill-switch)']);
         }
 
-        $symbol    = $action['symbol'] ?? '';
-        $side      = $action['side']   ?? '';
-        $actType   = $action['action'] ?? '';
-        $result    = ['ok' => false, 'error' => 'Unknown action'];
-        $eventType = 'confirmed_action';
+        $trading    = $this->settingsService->getTradingSettings();
+        $symbol     = $action['symbol'] ?? '';
+        $side       = $action['side']   ?? '';
+        $actType    = $action['action'] ?? '';
+        $result     = ['ok' => false, 'error' => 'Unknown action'];
+        $eventType  = 'confirmed_action';
         $realizedEstimate = null;
 
         if ($actType === 'CLOSE_FULL') {
@@ -720,7 +722,8 @@ class ApiController extends AbstractController
             $eventType        = 'close_full';
             $realizedEstimate = $action['pnlAtDecision'] ?? null;
         } elseif ($actType === 'AVERAGE_IN_ONCE') {
-            $sizeUsdt  = max(1.0, (float)($action['average_size_usdt'] ?? 10.0));
+            $minPos   = max(1.0, (float)($trading['min_position_usdt'] ?? 10));
+            $sizeUsdt = max($minPos, (float)($action['average_size_usdt'] ?? 10.0));
             $lev       = 1;
             foreach ($this->bybitService->getPositions() as $p) {
                 if (($p['symbol'] ?? '') === $symbol && ($p['side'] ?? '') === $side) {

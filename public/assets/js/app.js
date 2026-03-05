@@ -1050,7 +1050,8 @@ function renderDecisionsTable(data) {
         const riskColor = risk === 'low' ? '#3fb950' : risk === 'high' ? '#f85149' : '#d29922';
         const reason = (d.reason || d.note || '').substring(0, 60);
         const skipReason = d.skip_reason || (d.skipReason || '');
-        const ruleText = skipReason ? `<span class="rule-badge">${skipReason}</span>` : (d.ok === false && !d.skipped ? '<span class="rule-badge rule-error">error</span>' : '');
+        const errDetail = d.error || (d.guard && d.guard.message);
+        const ruleText = skipReason ? `<span class="rule-badge">${skipReason}</span>` : (d.ok === false && !d.skipped ? `<span class="rule-badge rule-error" title="${(errDetail || '').replace(/"/g, '&quot;')}">${(errDetail || 'error').substring(0, 40)}${(errDetail && errDetail.length > 40) ? '…' : ''}</span>` : '');
         const pnl = d.realizedPnlEstimate != null ? parseFloat(d.realizedPnlEstimate).toFixed(2) : '—';
         const pnlColor = d.realizedPnlEstimate > 0 ? '#3fb950' : d.realizedPnlEstimate < 0 ? '#f85149' : '';
         const pv = d.prompt_version ? `<span title="prompt version" style="font-size:0.7em;color:#555">${d.prompt_version}</span>` : '';

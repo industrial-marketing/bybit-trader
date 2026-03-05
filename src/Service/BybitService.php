@@ -977,6 +977,18 @@ class BybitService
             }
             $qty = $rawQty;
 
+            $minPositionUsdt = max(0, (float)($trading['min_position_usdt'] ?? 0));
+            $bybitMinUsdt    = $minOrderQty > 0 ? $minOrderQty * $price : 0;
+            $effectiveMin    = max($minPositionUsdt, $bybitMinUsdt);
+            if ($effectiveMin > 0 && $positionSizeUSDT < $effectiveMin) {
+                return [
+                    'ok'              => true,
+                    'skipped'         => true,
+                    'skipReason'      => 'below_min_position',
+                    'minPositionUSDT' => $effectiveMin,
+                ];
+            }
+
             // ── Pre-order diagnostic log (no secrets) ────────────────
             $this->log(sprintf(
                 'placeOrder → symbol=%s side=%s requestedUSDT=%.4f price=%.8f rawQty=%.8f qty=%.8f leverage=%dx | ' .
@@ -1065,9 +1077,17 @@ class BybitService
             return ['ok' => false, 'error' => 'Позиция не найдена'];
         }
 
-        $size     = (float)($position['size'] ?? 0);
-        $fraction = max(0.05, min(1.0, $fraction));
-        $qty      = $size * $fraction;
+        $size      = (float)($position['size'] ?? 0);
+        $markPrice  = (float)($position['markPrice'] ?? $position['entryPrice'] ?? 0);
+        $fraction   = max(0.05, min(1.0, $fraction));
+        $qty        = $size * $fraction;
+        $notional   = $qty * ($markPrice > 0 ? $markPrice : 1);
+
+        $trading        = $this->settingsService->getTradingSettings();
+        $minPositionUsdt = max(0, (float)($trading['min_position_usdt'] ?? 0));
+        if ($minPositionUsdt > 0 && $notional < $minPositionUsdt) {
+            return ['ok' => true, 'skipped' => true, 'skipReason' => 'below_min_position'];
+        }
 
         $instrument  = $this->getInstrumentInfo($symbol, $settings);
         $lotFilter   = $instrument['lotSizeFilter'] ?? [];

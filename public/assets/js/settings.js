@@ -97,6 +97,7 @@ function loadSettings() {
             // Trading settings
             if (data.trading) {
                 $('#trading-max-position').val(data.trading.max_position_usdt || '');
+                $('#trading-min-position').val(data.trading.min_position_usdt ?? '10');
                 $('#trading-min-leverage').val(data.trading.min_leverage || '');
                 $('#trading-max-leverage').val(data.trading.max_leverage || '');
                 $('#trading-aggressiveness').val(data.trading.aggressiveness || 'balanced');
@@ -238,6 +239,7 @@ function saveTradingSettings() {
     const settings = {
         trading: {
             max_position_usdt: parseFloat($('#trading-max-position').val() || '0'),
+            min_position_usdt: parseFloat($('#trading-min-position').val() || '10'),
             min_leverage: parseInt($('#trading-min-leverage').val() || '1', 10),
             max_leverage: parseInt($('#trading-max-leverage').val() || '5', 10),
             aggressiveness: $('#trading-aggressiveness').val() || 'balanced',

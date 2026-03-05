@@ -442,10 +442,11 @@ JSON;
 
         $trading         = $this->settingsService->getTradingSettings();
         $maxPositionUsdt = (float)($trading['max_position_usdt'] ?? 100.0);
+        $minPositionUsdt = max(0, (float)($trading['min_position_usdt'] ?? 10.0));
         $minLev          = max(1, (int)($trading['min_leverage'] ?? 1));
         $maxLev          = max($minLev, (int)($trading['max_leverage'] ?? 5));
         $aggr            = $trading['aggressiveness'] ?? 'balanced';
-        $defaultSize     = 10.0;
+        $defaultSize     = max($minPositionUsdt, 10.0);
 
         $lines = [];
         foreach ($markets as $m) {
@@ -464,7 +465,7 @@ JSON;
         $prompt .= "\n\nRecent bot performance:\n" . $historyContext . "\n\n";
         $prompt .= "Pick 5-10 best trading opportunities (BUY or SELL, skip HOLD). Confidence ≥ 60. ";
         $prompt .= "Fees ≈ 0.06 %/side; avoid tiny-edge proposals.\n";
-        $prompt .= "Default size: {$defaultSize} USDT. Leverage {$minLev}x–{$maxLev}x. Aggressiveness: {$aggr}.\n\n";
+        $prompt .= "Min position: {$minPositionUsdt} USDT. Default size: {$defaultSize} USDT. Leverage {$minLev}x–{$maxLev}x. Aggressiveness: {$aggr}.\n\n";
         $prompt .= 'Return JSON array: [{"symbol":"X","signal":"BUY|SELL","confidence":<0-100>,"reason":"...","position_size_usdt":<n>,"leverage":<int>}]. No other text.';
 
         try {
@@ -477,7 +478,7 @@ JSON;
                 return [];
             }
 
-            $proposals = $this->parseProposalsResponse($content, $minLev, $maxLev, $maxPositionUsdt, $defaultSize);
+            $proposals = $this->parseProposalsResponse($content, $minLev, $maxLev, $maxPositionUsdt, $defaultSize, $minPositionUsdt);
             usort($proposals, fn($a, $b) => ($b['confidence'] ?? 0) <=> ($a['confidence'] ?? 0));
             return $proposals;
         } catch (\Exception $e) {
@@ -486,7 +487,7 @@ JSON;
         }
     }
 
-    private function parseProposalsResponse(string $content, int $minLev, int $maxLev, float $maxUsdt, float $defaultSize): array
+    private function parseProposalsResponse(string $content, int $minLev, int $maxLev, float $maxUsdt, float $defaultSize, float $minUsdt = 0): array
     {
         $out = [];
         if (preg_match('/\[[\s\S]*\]/u', $content, $m)) {
@@ -500,12 +501,15 @@ JSON;
                     if ($conf < 60) {
                         continue;
                     }
+                    $size = (float)($item['position_size_usdt'] ?? $defaultSize);
+                    $size = max($size, $minUsdt, 0);
+                    $size = min($size, $maxUsdt);
                     $out[] = [
                         'symbol'          => $item['symbol'],
                         'signal'          => $item['signal'],
                         'confidence'      => $conf,
                         'reason'          => $item['reason'] ?? '',
-                        'positionSizeUSDT'=> min(max((float)($item['position_size_usdt'] ?? $defaultSize), 0), $maxUsdt),
+                        'positionSizeUSDT'=> $size,
                         'leverage'        => min(max((int)($item['leverage'] ?? $minLev), $minLev), $maxLev),
                     ];
                 }

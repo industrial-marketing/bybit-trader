@@ -50,6 +50,7 @@ class SettingsService
             ],
             'trading' => [
                 'max_position_usdt'        => 100.0,
+                'min_position_usdt'        => 10.0,
                 'min_leverage'             => 1,
                 'max_leverage'             => 5,
                 'aggressiveness'           => 'balanced',
