@@ -258,9 +258,14 @@ JSON;
         $prompt .= "- Strong trend + pnl>0 => consider MOVE_STOP_TO_BREAKEVEN (if not already).\n";
         $prompt .= "- CLOSE_PARTIAL fraction must be 0.1–0.5.\n";
         $prompt .= "- Fill checks from position pnl and strategy. If signals contradict => strategy_alignment=false, reduce confidence.\n\n";
-        $prompt .= "STRICT OUTPUT CONTRACT: Return a JSON **array** (one element per position, same order).\n";
-        $prompt .= "Each element MUST contain ALL these fields:\n{$schema}\n";
-        $prompt .= "Missing/invalid fields → set action to DO_NOTHING. No extra text.";
+        $orderHint = implode(', ', array_map(fn($p) => $p['symbol'] ?? '?', array_slice($positions, 0, 10)));
+        if ($posCount > 10) {
+            $orderHint .= ', ...';
+        }
+        $prompt .= "STRICT OUTPUT CONTRACT: Return a JSON **array** with EXACTLY {$posCount} elements.\n";
+        $prompt .= "Order MUST match: [{$orderHint}]. Index 0 = first position, 1 = second, etc.\n";
+        $prompt .= "Each element MUST contain ALL fields:\n{$schema}\n";
+        $prompt .= "Each element's \"symbol\" MUST match the position at that index. Missing/wrong → DO_NOTHING. No extra text.";
 
         // Emergency token-budget fallback
         if (strlen($prompt) > $charBudget) {
@@ -278,7 +283,7 @@ JSON;
             $prompt .= "OPEN POSITIONS ({$posCount}):\n" . implode("\n", $shortLines);
             $prompt .= "\n\nBOT HISTORY:\n" . $historyContext;
             $prompt .= "\nAveraged: {$averagedList}.\n\n";
-            $prompt .= "STRICT OUTPUT CONTRACT: JSON array, each element:\n{$schema}\nNo extra text.";
+            $prompt .= "STRICT OUTPUT CONTRACT: JSON array with EXACTLY {$posCount} elements in order [{$orderHint}]. Each:\n{$schema}\nNo extra text.";
         }
 
         $result = $this->requestLLMRaw(
@@ -344,15 +349,46 @@ JSON;
             return $out;
         }
 
-        // Build symbol-indexed map for alignment
+        // Iterate over POSITIONS (not LLM response) — LLM must return one item per position in same order
         $posSymbols = array_map(fn($p) => $p['symbol'] ?? '', $positions);
+        $arrCount   = count($arr);
+        $posCount   = count($positions);
 
-        foreach ($arr as $idx => $item) {
-            $sym       = $item['symbol'] ?? ($posSymbols[$idx] ?? 'UNKNOWN');
+        if ($arrCount !== $posCount) {
+            $this->log("LLM returned {$arrCount} items for {$posCount} positions — alignment may be wrong");
+        }
+
+        foreach ($posSymbols as $idx => $expectedSym) {
+            $item = $arr[$idx] ?? null;
+            $sym  = $expectedSym ?: 'UNKNOWN';
+
+            if ($item === null || !is_array($item)) {
+                $reason = $arrCount < $posCount
+                    ? "LLM returned only {$arrCount} items for {$posCount} positions (missing index {$idx})"
+                    : 'no_response_item';
+                $this->log("Invalid LLM decision for {$sym}: {$reason}");
+                $this->alertService->alertInvalidResponse($sym, "count_mismatch: got {$arrCount}, need {$posCount}. First: " . mb_substr(json_encode($arr[0] ?? []), 0, 150));
+                $this->botHistory->log('llm_invalid_response', [
+                    'symbol'    => $sym,
+                    'reason'    => $reason,
+                    'arr_count' => $arrCount,
+                    'pos_count' => $posCount,
+                ]);
+                $out[] = $this->doNothingDecision($sym, $reason, $raw, $provider);
+                continue;
+            }
+
+            $itemSym = $item['symbol'] ?? '';
+            if ($itemSym !== '' && $itemSym !== $expectedSym) {
+                $this->log("LLM symbol mismatch at idx {$idx}: expected {$expectedSym}, got {$itemSym}");
+                $this->alertService->alertInvalidResponse($sym, "symbol_mismatch: expected {$expectedSym}, got {$itemSym}. " . mb_substr(json_encode($item), 0, 150));
+                $out[] = $this->doNothingDecision($sym, 'symbol_mismatch', json_encode($item), $provider);
+                continue;
+            }
+
             $missingFields = [];
-
             foreach (self::REQUIRED_DECISION_FIELDS as $field) {
-                if (!isset($item[$field]) || ($field === 'action' && !in_array(strtoupper($item[$field]), self::VALID_ACTIONS, true))) {
+                if (!isset($item[$field]) || ($field === 'action' && !in_array(strtoupper($item[$field] ?? ''), self::VALID_ACTIONS, true))) {
                     $missingFields[] = $field;
                 }
             }
