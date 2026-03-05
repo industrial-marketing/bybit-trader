@@ -602,6 +602,39 @@ td.num, th.num { text-align: right; }
     overflow: hidden;
 }
 
+.tv-chart-wrapper-bot {
+    min-height: 540px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+#tv-chart-container-bot {
+    width: 100%;
+    height: 540px;
+    min-height: 400px;
+    border-radius: var(--radius) var(--radius) 0 0;
+    overflow: hidden;
+}
+
+.chart-resize-handle {
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: ns-resize;
+    background: rgba(255,255,255,0.06);
+    color: var(--muted);
+    font-size: 14px;
+    border-radius: 0 0 var(--radius) var(--radius);
+    user-select: none;
+    flex-shrink: 0;
+}
+.chart-resize-handle:hover {
+    background: rgba(255,255,255,0.12);
+    color: var(--text);
+}
+
 /* ── 15. Analysis / Decision Cards ───────────────────────────── */
 .market-analysis {
     padding: 20px;

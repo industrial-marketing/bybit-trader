@@ -80,13 +80,29 @@ $(document).ready(function() {
     });
 
     // Ручное управление позициями
-    $('#positions-table').on('click', '.btn-pos-lock', function() {
-        const $row = $(this).closest('tr');
+    $('#positions-table').on('click', '.btn-pos-lock', function(e) {
+        e.stopPropagation();
+        const $btn = $(this);
+        if ($btn.prop('disabled')) return;
+        const $row = $btn.closest('tr');
         const symbol = $row.data('symbol');
         const side = $row.data('side');
         if (!symbol || !side) return;
-        const isLockedNow = $row.find('td').eq(7).text().indexOf('Заблок') !== -1;
+        const lockedVal = $row.attr('data-locked') || $row.data('locked');
+        const isLockedNow = lockedVal === '1' || lockedVal === 1 || lockedVal === true;
         const newLocked = !isLockedNow;
+
+        $btn.prop('disabled', true);
+        $row.find('.btn-pos-lock i').removeClass('bi-lock-fill bi-unlock').addClass(newLocked ? 'bi-lock-fill' : 'bi-unlock');
+        $row.find('.btn-pos-lock').attr('title', newLocked ? 'Разблок.' : 'Замок');
+        const $botTd = $row.find('td').eq(11);
+        $botTd.find('.lock-badge').remove();
+        if (newLocked) {
+            $botTd.html('<span class="lock-badge"><i class="bi bi-lock-fill"></i> LOCKED</span>');
+        } else {
+            $botTd.html('<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Разрешен</span>');
+        }
+        $row.attr('data-locked', newLocked ? '1' : '0').data('locked', newLocked ? '1' : '0');
 
         $.ajax({
             url: '/api/position/lock',
@@ -94,7 +110,22 @@ $(document).ready(function() {
             contentType: 'application/json',
             data: JSON.stringify({ symbol: symbol, side: side, locked: newLocked }),
             success: function() {
+                if (typeof window.showToast === 'function') {
+                    window.showToast(newLocked ? 'Позиция заблокирована' : 'Позиция разблокирована', 'success');
+                }
                 loadPositions();
+            },
+            error: function(xhr) {
+                loadPositions();
+                const msg = xhr.responseJSON?.error || xhr.statusText || 'Ошибка';
+                if (typeof window.showToast === 'function') {
+                    window.showToast('Замок: ' + msg, 'error');
+                } else {
+                    alert(msg);
+                }
+            },
+            complete: function() {
+                $btn.prop('disabled', false);
             }
         });
     });
@@ -141,6 +172,38 @@ $(document).ready(function() {
         const sym = $(this).val();
         if (sym) setBotChartSymbol(sym);
     });
+
+    // Resize графика бота: drag handle
+    (function() {
+        const $container = $('#tv-chart-container-bot');
+        const $handle = $('#bot-chart-resize-handle');
+        const minH = 380, maxH = Math.min(900, window.innerHeight - 150);
+        const storageKey = 'botChartHeight';
+        let savedH = parseInt(localStorage.getItem(storageKey), 10);
+        if (!savedH || savedH < minH || savedH > maxH) savedH = 540;
+        $container.css('height', savedH + 'px');
+
+        $handle.on('mousedown', function(e) {
+            e.preventDefault();
+            const startY = e.clientY;
+            const startH = parseInt($container.css('height'), 10) || 540;
+            function onMove(ev) {
+                const dy = ev.clientY - startY;
+                let h = Math.max(minH, Math.min(maxH, startH + dy));
+                $container.css('height', h + 'px');
+                localStorage.setItem(storageKey, String(h));
+                if (tvWidgetBot && typeof tvWidgetBot.chart === 'function') {
+                    try { tvWidgetBot.chart().resize(); } catch (err) {}
+                }
+            }
+            function onUp() {
+                $(document).off('mousemove', onMove).off('mouseup', onUp);
+                $('body').css('cursor', '');
+            }
+            $('body').css('cursor', 'ns-resize');
+            $(document).on('mousemove', onMove).on('mouseup', onUp);
+        });
+    })();
 
     $('#positions-debug-btn').on('click', function() {
         const $modal = $('#positions-debug-modal');
@@ -263,7 +326,7 @@ function loadPositions() {
                     : `<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Разрешен</span>`;
 
                 html += `
-                    <tr data-symbol="${position.symbol}" data-side="${position.side}">
+                    <tr data-symbol="${position.symbol}" data-side="${position.side}" data-locked="${locked ? '1' : '0'}">
                         <td><strong>${position.symbol}</strong></td>
                         <td>${sideBadge}</td>
                         <td class="num">${position.size}</td>
