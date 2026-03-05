@@ -142,6 +142,27 @@ $(document).ready(function() {
         if (sym) setBotChartSymbol(sym);
     });
 
+    $('#positions-debug-btn').on('click', function() {
+        const $out = $('#positions-debug-output');
+        $out.show().html('Загрузка...');
+        $.get('/api/positions/debug')
+            .done(function(d) {
+                const lines = [
+                    'base_url: ' + (d.base_url || '—'),
+                    'retCode: ' + (d.retCode ?? '—') + ', retMsg: ' + (d.retMsg || '—'),
+                    'raw_count: ' + (d.raw_count ?? '—'),
+                    'with_size_gt0: ' + (d.with_size_gt0 ?? '—'),
+                    'symbols: ' + (d.symbols && d.symbols.length ? d.symbols.join(', ') : '(пусто)'),
+                    'nextPageCursor: ' + (d.nextPageCursor ? 'есть (ещё страницы!)' : 'нет'),
+                    d.error ? 'error: ' + d.error : ''
+                ].filter(Boolean);
+                $out.html(lines.join('\n'));
+            })
+            .fail(function(xhr) {
+                $out.html('Ошибка: ' + (xhr.responseJSON?.error || xhr.statusText || xhr.status));
+            });
+    });
+
     $('#modal-submit-btn').on('click', function() {
         submitOpenOrder();
     });
@@ -201,7 +222,7 @@ function renderWhyBadge(decision) {
 }
 
 function loadPositions() {
-    $.get('/api/positions')
+    $.get('/api/positions', { _t: Date.now() })  // cache-bust
         .done(function(data) {
             if (data.length === 0) {
                 $('#positions-table tbody').html('<tr><td colspan="13" class="loading">Нет открытых позиций</td></tr>');

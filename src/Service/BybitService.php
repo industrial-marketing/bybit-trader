@@ -332,6 +332,62 @@ class BybitService
 
         try {
             $baseUrl = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
+            $fetchedAtMs = (int)(microtime(true) * 1000);
+            $allRaw = [];
+
+            foreach (['USDT', 'USDC'] as $settleCoin) {
+                $cursor = '';
+                do {
+                    $params = ['category' => 'linear', 'settleCoin' => $settleCoin, 'limit' => 200];
+                    if ($cursor !== '') {
+                        $params['cursor'] = $cursor;
+                    }
+                    $response = $this->requestWithRetry('GET', $baseUrl . '/v5/position/list', [
+                        'query'   => $params,
+                        'headers' => $this->getAuthHeaders('GET', '/v5/position/list', $params, $settings),
+                    ]);
+
+                    $data = $response->toArray(false);
+                    $this->logRawIfFirst('position/list', $data);
+
+                    if (in_array($data['retCode'] ?? -1, [10002], true)) {
+                        $this->invalidateTimeOffset();
+                        $response = $this->requestWithRetry('GET', $baseUrl . '/v5/position/list', [
+                            'query'   => $params,
+                            'headers' => $this->getAuthHeaders('GET', '/v5/position/list', $params, $settings),
+                        ], 1);
+                        $data = $response->toArray(false);
+                    }
+
+                    if (($data['retCode'] ?? -1) !== 0 || !isset($data['result']['list'])) {
+                        break;
+                    }
+
+                    $allRaw = array_merge($allRaw, $data['result']['list']);
+                    $cursor = $data['result']['nextPageCursor'] ?? '';
+                } while ($cursor !== '');
+            }
+
+            return $this->formatPositions($allRaw, $fetchedAtMs);
+        } catch (\Exception $e) {
+            $this->log('getPositions Error: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Диагностика: сырой ответ Bybit и счётчики для отладки проблемы «позиции не показываются».
+     */
+    public function getPositionsDebug(): array
+    {
+        $settings = $this->settingsService->getBybitSettings();
+        $baseUrl  = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
+
+        if (empty($settings['api_key']) || empty($settings['api_secret'])) {
+            return ['ok' => false, 'error' => 'API ключи не настроены', 'base_url' => $baseUrl];
+        }
+
+        try {
             $params  = ['category' => 'linear', 'settleCoin' => 'USDT', 'limit' => 200];
             $response = $this->requestWithRetry('GET', $baseUrl . '/v5/position/list', [
                 'query'   => $params,
@@ -339,28 +395,32 @@ class BybitService
             ]);
 
             $data = $response->toArray(false);
-            $this->logRawIfFirst('position/list', $data);
-            if (isset($data['retCode']) && $data['retCode'] === 0 && isset($data['result']['list'])) {
-                return $this->formatPositions($data['result']['list'], (int)(microtime(true) * 1000));
-            }
+            $retCode = $data['retCode'] ?? -1;
+            $retMsg  = $data['retMsg'] ?? '';
+            $list    = $data['result']['list'] ?? [];
+            $cursor  = $data['result']['nextPageCursor'] ?? '';
 
-            // Timestamp error → re-sync and do one more try
-            if (in_array($data['retCode'] ?? -1, [10002], true)) {
-                $this->invalidateTimeOffset();
-                $response2 = $this->requestWithRetry('GET', $baseUrl . '/v5/position/list', [
-                    'query'   => $params,
-                    'headers' => $this->getAuthHeaders('GET', '/v5/position/list', $params, $settings),
-                ], 1);
-                $data2 = $response2->toArray(false);
-                if (($data2['retCode'] ?? -1) === 0 && isset($data2['result']['list'])) {
-                    return $this->formatPositions($data2['result']['list'], (int)(microtime(true) * 1000));
-                }
-            }
+            $rawCount = count($list);
+            $withSize = array_filter($list, fn($p) => (float)($p['size'] ?? 0) > 0);
+            $symbols  = array_map(fn($p) => ($p['symbol'] ?? '') . '/' . ($p['side'] ?? ''), $withSize);
 
-            return [];
+            return [
+                'ok'            => $retCode === 0,
+                'base_url'      => $baseUrl,
+                'retCode'       => $retCode,
+                'retMsg'        => $retMsg,
+                'raw_count'     => $rawCount,
+                'with_size_gt0' => count($withSize),
+                'symbols'       => array_values($symbols),
+                'nextPageCursor' => $cursor,
+                'formatted'     => $this->formatPositions($list, (int)(microtime(true) * 1000)),
+            ];
         } catch (\Exception $e) {
-            $this->log('getPositions Error: ' . $e->getMessage());
-            return [];
+            return [
+                'ok'       => false,
+                'error'    => $e->getMessage(),
+                'base_url' => $baseUrl,
+            ];
         }
     }
 

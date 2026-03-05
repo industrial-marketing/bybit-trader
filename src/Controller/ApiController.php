@@ -47,6 +47,12 @@ class ApiController extends AbstractController
 
     // ── Positions / orders / trades ───────────────────────────────
 
+    #[Route('/positions/debug', name: 'api_positions_debug', methods: ['GET'])]
+    public function getPositionsDebug(): JsonResponse
+    {
+        return $this->json($this->bybitService->getPositionsDebug());
+    }
+
     #[Route('/positions', name: 'api_positions', methods: ['GET'])]
     public function getPositions(): JsonResponse
     {
