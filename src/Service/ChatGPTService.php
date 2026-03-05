@@ -9,7 +9,7 @@ class ChatGPTService
     private const STRATEGY_VERSION = 'manage_v3.2';
     private const SCHEMA_VERSION  = 'schema_v3';
 
-    private const REQUIRED_DECISION_FIELDS = ['symbol', 'action', 'confidence', 'reason', 'risk'];
+    private const REQUIRED_DECISION_FIELDS = ['symbol', 'action', 'confidence', 'reason']; // risk optional, defaults to medium
 
     private const VALID_ACTIONS = [
         'CLOSE_FULL', 'CLOSE_PARTIAL', 'MOVE_STOP_TO_BREAKEVEN', 'AVERAGE_IN_ONCE', 'DO_NOTHING',
