@@ -200,7 +200,14 @@ class SettingsService
 
     public function updateTradingSettings(array $settings): void
     {
-        $this->settings['trading'] = array_merge($this->settings['trading'] ?? [], $settings);
+        $current = $this->settings['trading'] ?? [];
+        $merged  = array_merge($current, $settings);
+        // Гарантируем наличие min_position_usdt (добавлен позже, мог отсутствовать в старых settings.json)
+        if (!isset($merged['min_position_usdt']) || $merged['min_position_usdt'] === '' || $merged['min_position_usdt'] === null) {
+            $merged['min_position_usdt'] = 10.0;
+        }
+        $merged['min_position_usdt'] = max(0.0, (float) $merged['min_position_usdt']);
+        $this->settings['trading'] = $merged;
         $this->saveSettings();
     }
 

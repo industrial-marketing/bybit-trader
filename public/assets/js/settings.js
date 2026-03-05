@@ -259,6 +259,11 @@ function saveTradingSettings() {
     })
     .done(function(data) {
         showMessage('Торговые настройки сохранены успешно!', 'success');
+        if (data && data.settings && data.settings.trading) {
+            var t = data.settings.trading;
+            $('#trading-min-position').val(t.min_position_usdt ?? '10');
+            $('#trading-max-position').val(t.max_position_usdt || '');
+        }
     })
     .fail(function() {
         showMessage('Ошибка сохранения торговых настроек', 'error');

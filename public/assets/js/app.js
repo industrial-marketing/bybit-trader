@@ -1,6 +1,22 @@
 let tvWidget = null;
 let tvReady = false;
 
+/**
+ * Форматирует цену с учётом величины: малые цены (0.0045) — больше знаков, большие (45000) — меньше.
+ * @param {number|string|null} price
+ * @returns {string}
+ */
+function formatPrice(price) {
+    const v = parseFloat(price);
+    if (isNaN(v) || v === 0) return '-';
+    const abs = Math.abs(v);
+    if (abs < 0.0001) return v.toFixed(8);
+    if (abs < 0.01) return v.toFixed(6);
+    if (abs < 1) return v.toFixed(4);
+    if (abs < 1000) return v.toFixed(2);
+    return v.toFixed(2);
+}
+
 // Глобальный перехватчик 401 — перезагружаем страницу, браузер покажет Basic Auth диалог
 $(document).ajaxError(function(event, xhr) {
     if (xhr.status === 401) {
@@ -183,7 +199,7 @@ function loadPositions() {
                 const locked = position.locked === true;
                 const botStatus = locked ? 'Заблок.' : 'Разрешен';
                 const liq = position.liquidationPrice != null ? parseFloat(position.liquidationPrice) : null;
-                const liqText = liq && !isNaN(liq) && liq !== 0 ? liq.toFixed(2) : '-';
+                const liqText = liq && !isNaN(liq) && liq !== 0 ? formatPrice(liq) : '-';
                 const entryPrice = parseFloat(position.entryPrice || 0);
                 const size = parseFloat(position.size || 0);
                 const entryUsdt = entryPrice && size ? (entryPrice * size) : 0;
@@ -209,8 +225,8 @@ function loadPositions() {
                         <td class="num">${position.size}</td>
                         <td class="num">${entryUsdt ? entryUsdt.toFixed(2) : '-'}</td>
                         <td class="num">${levText}</td>
-                        <td class="num">${entryPrice ? entryPrice.toFixed(2) : '-'}</td>
-                        <td class="num">${parseFloat(position.markPrice).toFixed(2)}</td>
+                        <td class="num">${entryPrice ? formatPrice(entryPrice) : '-'}</td>
+                        <td class="num">${formatPrice(position.markPrice)}</td>
                         <td class="num">${liqText}</td>
                         <td class="num ${pnlClass}">${pnlSign}${pnl.toFixed(2)}</td>
                         <td>${position.openedAt}</td>
@@ -253,10 +269,9 @@ function loadOrders() {
                 const rawTrigger = order.triggerPrice != null ? parseFloat(order.triggerPrice) : null;
                 let priceText = '-';
                 if (rawPrice && !isNaN(rawPrice) && rawPrice !== 0) {
-                    priceText = rawPrice.toFixed(2);
+                    priceText = formatPrice(rawPrice);
                 } else if (rawTrigger && !isNaN(rawTrigger) && rawTrigger !== 0) {
-                    // Для стоп-ордеров показываем цену триггера вместо 0
-                    priceText = rawTrigger.toFixed(2);
+                    priceText = formatPrice(rawTrigger);
                 }
 
                 const sideRaw = (order.side || '').toUpperCase();
@@ -305,7 +320,7 @@ function loadTrades() {
                     <tr>
                         <td><strong>${trade.symbol}</strong></td>
                         <td class="${sideClassSide}">${sideText}</td>
-                        <td>${parseFloat(trade.price).toFixed(2)}</td>
+                        <td>${formatPrice(trade.price)}</td>
                         <td>${parseFloat(trade.quantity).toFixed(4)}</td>
                         <td class="${profitClass}">${profitText}</td>
                         <td>${trade.status}</td>
@@ -579,12 +594,12 @@ function loadTopMarkets() {
                 html += `
                     <tr data-symbol="${item.symbol}">
                         <td><strong>${item.symbol}</strong></td>
-                        <td>${lastPrice ? lastPrice.toFixed(4) : '-'}</td>
+                        <td>${formatPrice(lastPrice)}</td>
                         <td class="${changeClass}">${change.toFixed(2)}%</td>
                         <td>${vol.toFixed(2)}</td>
                         <td>${turnover.toFixed(2)}</td>
-                        <td>${item.highPrice24h != null ? parseFloat(item.highPrice24h).toFixed(4) : '-'}</td>
-                        <td>${item.lowPrice24h != null ? parseFloat(item.lowPrice24h).toFixed(4) : '-'}</td>
+                        <td>${item.highPrice24h != null ? formatPrice(item.highPrice24h) : '-'}</td>
+                        <td>${item.lowPrice24h != null ? formatPrice(item.lowPrice24h) : '-'}</td>
                     </tr>
                 `;
             });
