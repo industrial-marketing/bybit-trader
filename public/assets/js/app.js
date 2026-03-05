@@ -1,5 +1,7 @@
 let tvWidget = null;
 let tvReady = false;
+let tvWidgetBot = null;
+let tvReadyBot = false;
 
 /**
  * Форматирует цену с учётом величины: малые цены (0.0045) — больше знаков, большие (45000) — меньше.
@@ -125,6 +127,21 @@ $(document).ready(function() {
             }
         });
     });
+
+    $('#positions-table').on('click', 'tbody tr[data-symbol]', function(e) {
+        if ($(e.target).closest('button').length) return;
+        const symbol = $(this).data('symbol');
+        if (symbol) {
+            setBotChartSymbol(symbol);
+            switchDashboardPage('bot');
+        }
+    });
+
+    $('#bot-chart-symbol').on('change', function() {
+        const sym = $(this).val();
+        if (sym) setBotChartSymbol(sym);
+    });
+
     $('#modal-submit-btn').on('click', function() {
         submitOpenOrder();
     });
@@ -244,6 +261,8 @@ function loadPositions() {
                 `;
             });
             $('#positions-table tbody').html(html);
+            addPositionSymbolsToSelector(data);
+            updateBotChartSymbolSelector(data);
         })
         .fail(function() {
             $('#positions-table tbody').html('<tr><td colspan="13" class="loading">Ошибка загрузки данных</td></tr>');
@@ -561,8 +580,31 @@ function loadBotHistory() {
         });
 }
 
+function mergeSymbolsIntoSelector(topSymbols, positionSymbols) {
+    const $sel = $('#symbol-selector');
+    const currentVal = $sel.val();
+    const existing = {};
+    $sel.find('option').each(function() { existing[$(this).val()] = true; });
+    const add = function(sym) { if (sym && !existing[sym]) { existing[sym] = true; $sel.append($('<option></option>').val(sym).text(sym)); } };
+    (positionSymbols || []).forEach(add);
+    (topSymbols || []).forEach(function(i) { add(i.symbol || i); });
+    if (currentVal && existing[currentVal]) { $sel.val(currentVal); }
+    else if (positionSymbols && positionSymbols[0]) { $sel.val(positionSymbols[0]); }
+    else if (topSymbols && topSymbols[0]) { $sel.val(topSymbols[0].symbol || topSymbols[0]); }
+}
+
+function addPositionSymbolsToSelector(positions) {
+    if (!positions || positions.length === 0) return;
+    const symbols = positions.map(function(p) { return p.symbol; }).filter(Boolean);
+    const existing = {};
+    $('#symbol-selector').find('option').each(function() { existing[$(this).val()] = true; });
+    symbols.forEach(function(sym) {
+        if (sym && !existing[sym]) { existing[sym] = true; $('#symbol-selector').append($('<option></option>').val(sym).text(sym)); }
+    });
+}
+
 function loadTopMarkets() {
-    $.get('/api/market/top?limit=20')
+    $.get('/api/market/top?limit=50')
         .done(function(data) {
             if (!data || data.length === 0) {
                 $('#top-markets-table tbody').html('<tr><td colspan="7" class="loading">Нет данных по рынку</td></tr>');
@@ -570,20 +612,8 @@ function loadTopMarkets() {
             }
 
             let html = '';
-            const top20 = data.slice(0, 20);
-            const $sel = $('#symbol-selector');
-            const currentVal = $sel.val();
-            if ($sel.find('option').length <= 3) {
-                $sel.empty();
-                top20.forEach(function(item) {
-                    $sel.append($('<option></option>').val(item.symbol).text(item.symbol));
-                });
-                if (currentVal && top20.some(function(i) { return i.symbol === currentVal; })) {
-                    $sel.val(currentVal);
-                } else if (top20.length) {
-                    $sel.val(top20[0].symbol);
-                }
-            }
+            const top50 = data.slice(0, 50);
+            mergeSymbolsIntoSelector(top50, []);
             data.forEach(function(item, index) {
                 const change = parseFloat(item.price24hPcnt || 0);
                 const changeClass = change > 0 ? 'profit' : (change < 0 ? 'loss' : '');
@@ -678,6 +708,8 @@ function submitOpenOrder() {
                 $('#modal-message').text('Сделка открыта.').addClass('success');
                 loadPositions();
                 loadBalance();
+                // Bybit может обновлять список позиций с задержкой 1–2 сек
+                setTimeout(function() { loadPositions(); loadBalance(); }, 1500);
                 setTimeout(function() {
                     $('#open-order-modal').hide();
                 }, 800);
@@ -754,6 +786,51 @@ function initTradingView(symbol) {
         tvWidget.onChartReady(function() {
             tvReady = true;
         });
+    }
+}
+
+function updateBotChartSymbolSelector(positions) {
+    const $sel = $('#bot-chart-symbol');
+    $sel.find('option:not(:first)').remove();
+    if (!positions || positions.length === 0) return;
+    positions.forEach(function(p) {
+        const sym = p.symbol;
+        if (sym) $sel.append($('<option></option>').val(sym).text(sym));
+    });
+}
+
+function setBotChartSymbol(symbol) {
+    if (!symbol) return;
+    $('#bot-chart-symbol').val(symbol);
+    if (typeof TradingView === 'undefined') return;
+    const tvSymbol = getTradingViewSymbol(symbol);
+    if (tvWidgetBot && tvReadyBot && typeof tvWidgetBot.chart === 'function') {
+        tvWidgetBot.chart().setSymbol(tvSymbol);
+        return;
+    }
+    if (tvWidgetBot && typeof tvWidgetBot.onChartReady === 'function') {
+        tvWidgetBot.onChartReady(function() {
+            tvReadyBot = true;
+            if (typeof tvWidgetBot.chart === 'function') tvWidgetBot.chart().setSymbol(tvSymbol);
+        });
+        return;
+    }
+    tvWidgetBot = new TradingView.widget({
+        symbol: tvSymbol,
+        interval: '60',
+        container_id: 'tv-chart-container-bot',
+        timezone: 'Etc/UTC',
+        theme: 'dark',
+        style: '1',
+        locale: 'ru',
+        toolbar_bg: '#0a0e27',
+        hide_side_toolbar: false,
+        allow_symbol_change: true,
+        withdateranges: true,
+        autosize: true,
+    });
+    if (typeof tvWidgetBot.onChartReady === 'function') {
+        tvWidgetBot.onChartReady(function() { tvReadyBot = true; });
     }
 }
 

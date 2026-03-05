@@ -332,7 +332,7 @@ class BybitService
 
         try {
             $baseUrl = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
-            $params  = ['category' => 'linear', 'settleCoin' => 'USDT'];
+            $params  = ['category' => 'linear', 'settleCoin' => 'USDT', 'limit' => 200];
             $response = $this->requestWithRetry('GET', $baseUrl . '/v5/position/list', [
                 'query'   => $params,
                 'headers' => $this->getAuthHeaders('GET', '/v5/position/list', $params, $settings),
