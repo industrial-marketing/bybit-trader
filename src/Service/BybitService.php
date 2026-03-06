@@ -16,9 +16,14 @@ use Symfony\Contracts\HttpClient\ResponseInterface;
 class BybitService
 {
     // retCodes that indicate qty/instrument validation failure → invalidate instrument cache
-    private const QTY_ERROR_CODES = [110017, 110009, 170036, 170037, 110043];
+    private const QTY_ERROR_CODES = [110017, 110009, 170036, 170037];
     // retCode for rate limit exceeded
     private const RATE_LIMIT_CODE = 10006;
+    // set-leverage: leverage already at requested value → continue
+    private const SET_LEVERAGE_NO_CHANGE = 110043;
+    // switch-isolated: UTA не поддерживает (100028) или режим уже установлен (110026) → пропустить
+    private const SWITCH_ISOLATED_UTA_FORBIDDEN = 100028;
+    private const SWITCH_ISOLATED_NO_CHANGE    = 110026;
 
     private array $instrumentMemCache = [];
 
@@ -1323,14 +1328,18 @@ class BybitService
             ]);
             $dataLev = $respLev->toArray(false);
             $rcLev   = $dataLev['retCode'] ?? -1;
-            $this->log("placeOrder set-leverage → retCode={$rcLev} retMsg=" . ($dataLev['retMsg'] ?? ''));
-            if ($rcLev !== 0) {
-                $errMsg = $dataLev['retMsg'] ?? 'Unknown';
-                $this->log("placeOrder abort: set-leverage failed ({$rcLev}) {$errMsg}");
-                return ['ok' => false, 'error' => "set-leverage: {$errMsg}", 'retCode' => $rcLev];
+            $msgLev  = $dataLev['retMsg'] ?? '';
+            $this->log("placeOrder set-leverage → retCode={$rcLev} retMsg={$msgLev}");
+            $levNoChange = ($rcLev === self::SET_LEVERAGE_NO_CHANGE) || (stripos($msgLev, 'leverage not modified') !== false || stripos($msgLev, 'has not been modified') !== false);
+            if ($rcLev !== 0 && !$levNoChange) {
+                $this->log("placeOrder abort: set-leverage failed ({$rcLev}) {$msgLev}");
+                return ['ok' => false, 'error' => "set-leverage: {$msgLev}", 'retCode' => $rcLev];
+            }
+            if ($levNoChange) {
+                $this->log("placeOrder set-leverage: leverage already set, continuing");
             }
 
-            // Switch to isolated — режим изолированной маржи
+            // Switch to isolated — для classic account; UTA (100028 / unified account forbidden) не поддерживает → пропускаем
             $bodySwitch = json_encode(['category' => 'linear', 'symbol' => $symbol, 'tradeMode' => 1, 'buyLeverage' => (string)$leverage, 'sellLeverage' => (string)$leverage]);
             $respSw = $this->requestWithRetry('POST', $baseUrl . '/v5/position/switch-isolated', [
                 'headers' => $this->getAuthHeaders('POST', '/v5/position/switch-isolated', $emptyParams, $settings, $bodySwitch),
@@ -1338,11 +1347,17 @@ class BybitService
             ]);
             $dataSw = $respSw->toArray(false);
             $rcSw   = $dataSw['retCode'] ?? -1;
-            $this->log("placeOrder switch-isolated → retCode={$rcSw} retMsg=" . ($dataSw['retMsg'] ?? ''));
-            if ($rcSw !== 0) {
-                $errMsg = $dataSw['retMsg'] ?? 'Unknown';
-                $this->log("placeOrder abort: switch-isolated failed ({$rcSw}) {$errMsg}");
-                return ['ok' => false, 'error' => "switch-isolated: {$errMsg}", 'retCode' => $rcSw];
+            $msgSw  = $dataSw['retMsg'] ?? '';
+            $this->log("placeOrder switch-isolated → retCode={$rcSw} retMsg={$msgSw}");
+            $swUtaskip = in_array($rcSw, [self::SWITCH_ISOLATED_UTA_FORBIDDEN, self::SWITCH_ISOLATED_NO_CHANGE], true)
+                || (stripos($msgSw, 'unified account') !== false && stripos($msgSw, 'forbidden') !== false)
+                || stripos($msgSw, 'has not been modified') !== false;
+            if ($rcSw !== 0 && !$swUtaskip) {
+                $this->log("placeOrder abort: switch-isolated failed ({$rcSw}) {$msgSw}");
+                return ['ok' => false, 'error' => "switch-isolated: {$msgSw}", 'retCode' => $rcSw];
+            }
+            if ($swUtaskip) {
+                $this->log("placeOrder switch-isolated: UTA account, margin mode at account level, skipping");
             }
 
             // Place market order
