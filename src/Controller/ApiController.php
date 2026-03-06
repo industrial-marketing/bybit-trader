@@ -139,9 +139,11 @@ class ApiController extends AbstractController
     {
         $display = (bool)($request->query->get('display') ?? true);
         $limit   = (int)($request->query->get('limit') ?? 50);
+        $period  = (string)($request->query->get('period') ?? 'all');
+        $cursor  = $request->query->get('cursor');
 
         if ($display) {
-            return $this->json($this->bybitService->getClosedTradesForDisplay($limit));
+            return $this->json($this->bybitService->getClosedTradesForDisplay($limit, $period, $cursor));
         }
         return $this->json($this->bybitService->getClosedTrades(max($limit, 200)));
     }

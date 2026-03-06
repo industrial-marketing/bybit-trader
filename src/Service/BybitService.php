@@ -788,9 +788,13 @@ class BybitService
     }
 
     /**
-     * Fetch closed PnL via /v5/position/closed-pnl (category=linear). Limit max 100 per request.
+     * Fetch closed PnL via /v5/position/closed-pnl (category=linear).
+     * @param int         $limit     Max records
+     * @param int|null    $startTime Start timestamp ms
+     * @param int|null    $endTime   End timestamp ms
+     * @param string|null $cursor    Pagination cursor
      */
-    public function getClosedPnl(int $limit = 100): array
+    public function getClosedPnl(int $limit = 100, ?int $startTime = null, ?int $endTime = null, ?string $cursor = null): array
     {
         $settings = $this->settingsService->getBybitSettings();
         if (empty($settings['api_key']) || empty($settings['api_secret'])) {
@@ -800,14 +804,20 @@ class BybitService
         try {
             $baseUrl = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
             $allList = [];
-            $cursor  = null;
+            $nextCursor = $cursor;
             $retCode = 0;
             $retMsg  = 'OK';
 
-            for ($page = 0; $page < 3 && count($allList) < $limit; $page++) {
+            for ($page = 0; $page < 5 && count($allList) < $limit; $page++) {
                 $params = ['category' => 'linear', 'limit' => min(100, $limit - count($allList))];
-                if ($cursor !== null) {
-                    $params['cursor'] = $cursor;
+                if ($startTime !== null) {
+                    $params['startTime'] = $startTime;
+                }
+                if ($endTime !== null) {
+                    $params['endTime'] = $endTime;
+                }
+                if ($nextCursor !== null && $nextCursor !== '') {
+                    $params['cursor'] = $nextCursor;
                 }
                 $response = $this->requestWithRetry('GET', $baseUrl . '/v5/position/closed-pnl', [
                     'query'   => $params,
@@ -824,12 +834,12 @@ class BybitService
                 }
                 $list = $data['result']['list'] ?? [];
                 $allList = array_merge($allList, $list);
-                $cursor  = $data['result']['nextPageCursor'] ?? null;
-                if (empty($cursor) || count($list) < 100) {
+                $nextCursor = $data['result']['nextPageCursor'] ?? null;
+                if (empty($nextCursor) || count($list) < 100) {
                     break;
                 }
             }
-            return ['retCode' => 0, 'retMsg' => $retMsg, 'list' => $allList];
+            return ['retCode' => 0, 'retMsg' => $retMsg, 'list' => $allList, 'nextPageCursor' => $nextCursor];
         } catch (\Exception $e) {
             $this->log('getClosedPnl Error: ' . $e->getMessage());
             return ['retCode' => -1, 'retMsg' => $e->getMessage(), 'list' => []];
@@ -870,19 +880,31 @@ class BybitService
 
     /**
      * Closed trades for display: closed-pnl preferred (rich data), fallback to execution/list.
-     * Returns: trades (with entryPrice, exitPrice, closedPnl, fee, roiPct, status, duration, closedAt)
-     * and summary (todayPnl, tradesCount, winRate, avgRoiPct).
+     * @param int         $limit  Records per page (default 50)
+     * @param string      $period today|24h|7d|all
+     * @param string|null $cursor Pagination cursor
+     * @return array trades, summary, nextPageCursor
      */
-    public function getClosedTradesForDisplay(int $limit = 50): array
+    public function getClosedTradesForDisplay(int $limit = 50, string $period = 'all', ?string $cursor = null): array
     {
         $settings = $this->settingsService->getBybitSettings();
-        $empty    = ['trades' => [], 'summary' => ['todayPnl' => 0, 'tradesCount' => 0, 'winRate' => 0, 'avgRoiPct' => 0]];
+        $empty    = ['trades' => [], 'summary' => ['todayPnl' => 0, 'tradesCount' => 0, 'winRate' => 0, 'avgRoiPct' => 0, 'bestTrade' => 0, 'worstTrade' => 0, 'avgFee' => 0, 'avgDurationMs' => 0], 'nextPageCursor' => null];
 
         if (empty($settings['api_key']) || empty($settings['api_secret'])) {
             return $empty;
         }
 
-        $closedPnlRaw = $this->getClosedPnl(max(100, $limit));
+        $endTime   = (int)(microtime(true) * 1000);
+        $startTime = null;
+        if ($period === 'today') {
+            $startTime = strtotime('today') * 1000;
+        } elseif ($period === '24h') {
+            $startTime = $endTime - 86400 * 1000;
+        } elseif ($period === '7d') {
+            $startTime = $endTime - 7 * 86400 * 1000;
+        }
+
+        $closedPnlRaw = $this->getClosedPnl(max(100, $limit + 50), $startTime, $endTime, $cursor);
         $list         = $closedPnlRaw['list'] ?? [];
 
         if (empty($list)) {
@@ -931,37 +953,48 @@ class BybitService
             $status   = $this->mapExecTypeToStatus($execType);
 
             $trades[] = [
-                'id'         => $t['orderId'] ?? '',
-                'symbol'     => $t['symbol'] ?? '',
-                'side'       => $t['side'] ?? '',
-                'entryPrice' => $entryPrice,
-                'exitPrice'  => $exitPrice,
-                'quantity'   => $closedSize,
-                'closedPnl'  => $closedPnl,
-                'fee'        => $fee,
-                'roiPct'     => round($roiPct, 2),
-                'status'     => $status,
-                'durationMs' => $duration,
-                'openedAt'   => $createdMs > 0 ? date('Y-m-d H:i:s', (int)($createdMs / 1000)) : '',
-                'closedAt'   => $closedAt,
+                'id'              => $t['orderId'] ?? '',
+                'symbol'          => $t['symbol'] ?? '',
+                'side'            => $t['side'] ?? '',
+                'entryPrice'      => $entryPrice,
+                'exitPrice'       => $exitPrice,
+                'quantity'        => $closedSize,
+                'positionSizeUsdt'=> round($positionVal, 2),
+                'leverage'        => $leverage,
+                'closedPnl'       => $closedPnl,
+                'fee'             => $fee,
+                'roiPct'          => round($roiPct, 2),
+                'status'          => $status,
+                'durationMs'      => $duration,
+                'openedAt'        => $createdMs > 0 ? date('Y-m-d H:i:s', (int)($createdMs / 1000)) : '',
+                'closedAt'        => $closedAt,
             ];
         }
 
-        $tradesCount = count($trades);
-        $winRate     = $tradesCount > 0 ? round(100 * $wins / $tradesCount, 1) : 0;
-        $avgRoiPct   = $roiCount > 0 ? round($totalRoi / $roiCount, 2) : 0;
-        $durations   = array_filter(array_column($trades, 'durationMs'), fn($d) => $d > 0);
+        $tradesCount   = count($trades);
+        $winRate       = $tradesCount > 0 ? round(100 * $wins / $tradesCount, 1) : 0;
+        $avgRoiPct     = $roiCount > 0 ? round($totalRoi / $roiCount, 2) : 0;
+        $durations     = array_filter(array_column($trades, 'durationMs'), fn($d) => $d > 0);
         $avgDurationMs = !empty($durations) ? (int)round(array_sum($durations) / count($durations)) : 0;
+        $fees          = array_filter(array_column($trades, 'fee'), fn($f) => $f > 0);
+        $avgFee        = !empty($fees) ? round(array_sum($fees) / count($fees), 4) : 0;
+        $pnls          = array_map(fn($t) => (float)($t['closedPnl'] ?? 0), $trades);
+        $bestTrade     = !empty($pnls) ? max($pnls) : 0;
+        $worstTrade    = !empty($pnls) ? min($pnls) : 0;
 
         return [
-            'trades'  => $trades,
-            'summary' => [
+            'trades'         => array_slice($trades, 0, $limit),
+            'summary'        => [
                 'todayPnl'      => round($todayPnl, 2),
                 'tradesCount'   => $tradesCount,
                 'winRate'       => $winRate,
                 'avgRoiPct'     => $avgRoiPct,
                 'avgDurationMs' => $avgDurationMs,
+                'avgFee'        => round($avgFee, 4),
+                'bestTrade'     => round($bestTrade, 2),
+                'worstTrade'    => round($worstTrade, 2),
             ],
+            'nextPageCursor' => $closedPnlRaw['nextPageCursor'] ?? null,
         ];
     }
 
@@ -1010,19 +1043,21 @@ class BybitService
             }
 
             $trades[] = [
-                'id'         => $t['id'] ?? '',
-                'symbol'     => $t['symbol'] ?? '',
-                'side'       => $t['side'] ?? '',
-                'entryPrice' => 0, // exec doesn't have entry
-                'exitPrice'  => $price,
-                'quantity'   => $qty,
-                'closedPnl'  => $closedPnl,
-                'fee'        => $fee,
-                'roiPct'     => round($roiPct, 2),
-                'status'     => $t['status'] ?? 'CLOSED',
-                'durationMs' => 0,
-                'openedAt'   => $openedAt,
-                'closedAt'   => $closedAt,
+                'id'              => $t['id'] ?? '',
+                'symbol'          => $t['symbol'] ?? '',
+                'side'            => $t['side'] ?? '',
+                'entryPrice'      => 0,
+                'exitPrice'       => $price,
+                'quantity'        => $qty,
+                'positionSizeUsdt'=> round($positionVal, 2),
+                'leverage'        => 0,
+                'closedPnl'       => $closedPnl,
+                'fee'             => $fee,
+                'roiPct'          => round($roiPct, 2),
+                'status'          => $t['status'] ?? 'CLOSED',
+                'durationMs'      => 0,
+                'openedAt'        => $openedAt,
+                'closedAt'        => $closedAt,
             ];
         }
 
@@ -1032,15 +1067,21 @@ class BybitService
         $durations     = array_filter(array_column($trades, 'durationMs'), fn($d) => $d > 0);
         $avgDurationMs = !empty($durations) ? (int)round(array_sum($durations) / count($durations)) : 0;
 
+        $pnls      = array_map(fn($t) => (float)($t['closedPnl'] ?? 0), $trades);
+        $fees      = array_filter(array_column($trades, 'fee'), fn($f) => $f > 0);
         return [
-            'trades'  => $trades,
-            'summary' => [
+            'trades'         => $trades,
+            'summary'        => [
                 'todayPnl'      => round($todayPnl, 2),
                 'tradesCount'   => $tradesCount,
                 'winRate'       => $winRate,
                 'avgRoiPct'     => $avgRoiPct,
-                'avgDurationMs' => $avgDurationMs,
+                'avgDurationMs' => 0,
+                'avgFee'        => !empty($fees) ? round(array_sum($fees) / count($fees), 4) : 0,
+                'bestTrade'     => !empty($pnls) ? round(max($pnls), 2) : 0,
+                'worstTrade'    => !empty($pnls) ? round(min($pnls), 2) : 0,
             ],
+            'nextPageCursor' => null,
         ];
     }
 
@@ -1051,7 +1092,7 @@ class BybitService
         $baseResult  = [
             'totalTrades'    => 0, 'winRate' => 0.0, 'totalProfit' => 0.0, 'totalFees' => 0.0,
             'averageProfit'  => 0.0, 'maxDrawdown' => 0.0, 'profitFactor' => 0.0,
-            'winningTrades'  => 0, 'losingTrades' => 0,
+            'avgDurationMs'  => 0, 'winningTrades' => 0, 'losingTrades' => 0,
             'source'         => 'empty',
             'closedTradesCount' => 0,
             'tradesCount'    => 0,
@@ -1120,6 +1161,9 @@ class BybitService
         $winningTrades = array_filter($closedTrades, fn($t) => (float)($t['closedPnl'] ?? 0) > 0);
         $losingTrades  = array_filter($closedTrades, fn($t) => (float)($t['closedPnl'] ?? 0) < 0);
 
+        $durations    = array_filter(array_map(fn($t) => (int)($t['durationMs'] ?? 0), $closedTrades), fn($d) => $d > 0);
+        $avgDurationMs = !empty($durations) ? (int)round(array_sum($durations) / count($durations)) : 0;
+
         $totalProfit = array_sum(array_map(fn($t) => (float)($t['closedPnl'] ?? 0), $closedTrades));
         $totalFees   = array_sum(array_map(fn($t) => (float)($t['execFee'] ?? 0), $trades));
         $winRate     = $totalTrades > 0 ? (count($winningTrades) / $totalTrades) * 100 : 0;
@@ -1138,6 +1182,7 @@ class BybitService
             'averageProfit'  => round($avgProfit, 2),
             'maxDrawdown'    => round($maxDrawdown, 2),
             'profitFactor'   => round($profitFactor, 2),
+            'avgDurationMs' => $avgDurationMs,
             'winningTrades'  => count($winningTrades),
             'losingTrades'   => count($losingTrades),
         ]);
@@ -1146,22 +1191,26 @@ class BybitService
     /** Format closed-pnl API response to same structure as formatTrades. */
     private function formatClosedPnlTrades(array $list): array
     {
-        return array_map(fn($t): array => [
-            'id'        => $t['orderId'] ?? '',
-            'symbol'    => $t['symbol'] ?? '',
-            'side'      => $t['side'] ?? '',
-            'price'     => $t['avgExitPrice'] ?? $t['orderPrice'] ?? '0',
-            'quantity'  => $t['closedSize'] ?? $t['qty'] ?? '0',
-            'closedPnl' => $t['closedPnl'] ?? null,
-            'execFee'   => isset($t['openFee'], $t['closeFee'])
-                ? (float)($t['openFee'] ?? 0) + (float)($t['closeFee'] ?? 0)
-                : null,
-            'status'    => 'Trade',
-            'openedAt'  => isset($t['createdTime'])
-                ? date('Y-m-d H:i:s', (int)$t['createdTime'] / 1000)
-                : date('Y-m-d H:i:s'),
-            'orderType' => $t['orderType'] ?? '',
-        ], $list);
+        return array_map(function ($t): array {
+            $createdMs = (int)($t['createdTime'] ?? 0);
+            $updatedMs = (int)($t['updatedTime'] ?? $createdMs);
+            $duration  = $updatedMs > 0 && $createdMs > 0 ? max(0, $updatedMs - $createdMs) : 0;
+            return [
+                'id'          => $t['orderId'] ?? '',
+                'symbol'      => $t['symbol'] ?? '',
+                'side'        => $t['side'] ?? '',
+                'price'       => $t['avgExitPrice'] ?? $t['orderPrice'] ?? '0',
+                'quantity'    => $t['closedSize'] ?? $t['qty'] ?? '0',
+                'closedPnl'   => $t['closedPnl'] ?? null,
+                'execFee'     => isset($t['openFee'], $t['closeFee'])
+                    ? (float)($t['openFee'] ?? 0) + (float)($t['closeFee'] ?? 0)
+                    : null,
+                'durationMs'  => $duration,
+                'status'      => 'Trade',
+                'openedAt'    => $createdMs > 0 ? date('Y-m-d H:i:s', (int)($createdMs / 1000)) : date('Y-m-d H:i:s'),
+                'orderType'   => $t['orderType'] ?? '',
+            ];
+        }, $list);
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -531,6 +531,8 @@ td.num, th.num { text-align: right; }
 .loss   { color: var(--negative); font-weight: 600; }
 #trades-table tbody tr.profit { background: rgba(34, 197, 94, 0.06); }
 #trades-table tbody tr.loss   { background: rgba(239, 68, 68, 0.06); }
+#trades-table th.sortable { cursor: pointer; user-select: none; }
+#trades-table th.sortable:hover { color: var(--brand-orange, #F59E0B); }
 .active-row { background: rgba(245,158,11,0.04) !important; }
 
 /* ── 12. Bot Status / Alert Component ────────────────────────── */
