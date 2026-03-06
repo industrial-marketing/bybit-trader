@@ -380,10 +380,11 @@ class BotTickCommand extends Command
                 }
             } elseif ($action === 'AVERAGE_IN_ONCE') {
                 if (!isset($alreadyAveraged[$symbol])) {
-                    $sizeBefore = (float) ($position['size'] ?? 0);
-                    $minPos     = max(1.0, (float)($trading['min_position_usdt'] ?? 10));
-                    $sizeUsdt   = max($minPos, (float)($d['average_size_usdt'] ?? 10.0));
-                    $lev        = max(1, (int) ($position['leverage'] ?? 1));
+                    $sizeBefore  = (float) ($position['size'] ?? 0);
+                    $lev         = max(1, (int) ($position['leverage'] ?? 1));
+                    $minMargin   = max(0, (float)($trading['min_position_usdt'] ?? 10));
+                    $minNotional = $minMargin * $lev;
+                    $sizeUsdt    = max($minNotional, (float)($d['average_size_usdt'] ?? 10.0));
                     $bybitSide  = strtoupper($side) === 'BUY' ? 'BUY' : 'SELL';
                     $result     = $this->bybitService->placeOrder($symbol, $bybitSide, $sizeUsdt, $lev);
                     $eventType  = 'average_in';

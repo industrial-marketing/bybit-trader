@@ -294,7 +294,7 @@ function loadPositions() {
     $.get('/api/positions', { _t: Date.now() })  // cache-bust
         .done(function(data) {
             if (data.length === 0) {
-                $('#positions-table tbody').html('<tr><td colspan="13" class="loading">Нет открытых позиций</td></tr>');
+                $('#positions-table tbody').html('<tr><td colspan="14" class="loading">Нет открытых позиций</td></tr>');
                 return;
             }
 
@@ -309,8 +309,10 @@ function loadPositions() {
                 const liqText = liq && !isNaN(liq) && liq !== 0 ? formatPrice(liq) : '-';
                 const entryPrice = parseFloat(position.entryPrice || 0);
                 const size = parseFloat(position.size || 0);
+                const leverage = position.leverage != null ? parseFloat(position.leverage) : 0;
                 const entryUsdt = entryPrice && size ? (entryPrice * size) : 0;
-                const levText = position.leverage != null ? String(position.leverage) + 'x' : '-';
+                const margin = entryUsdt && leverage > 0 ? (entryUsdt / leverage) : 0;
+                const levText = leverage > 0 ? String(leverage) + 'x' : '-';
                 const sideRaw = (position.side || '').toUpperCase();
                 const sideText = sideRaw === 'BUY' ? 'Long' : sideRaw === 'SELL' ? 'Short' : (position.side || '');
                 const sideBadge = sideRaw === 'BUY'
@@ -331,6 +333,7 @@ function loadPositions() {
                         <td>${sideBadge}</td>
                         <td class="num">${position.size}</td>
                         <td class="num">${entryUsdt ? entryUsdt.toFixed(2) : '-'}</td>
+                        <td class="num">${margin ? margin.toFixed(2) : '-'}</td>
                         <td class="num">${levText}</td>
                         <td class="num">${entryPrice ? formatPrice(entryPrice) : '-'}</td>
                         <td class="num">${formatPrice(position.markPrice)}</td>
@@ -355,7 +358,7 @@ function loadPositions() {
             updateBotChartSymbolSelector(data);
         })
         .fail(function() {
-            $('#positions-table tbody').html('<tr><td colspan="13" class="loading">Ошибка загрузки данных</td></tr>');
+            $('#positions-table tbody').html('<tr><td colspan="14" class="loading">Ошибка загрузки данных</td></tr>');
         });
 }
 

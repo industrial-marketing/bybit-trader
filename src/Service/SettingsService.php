@@ -49,8 +49,8 @@ class SettingsService
                 'timeout' => 120,
             ],
             'trading' => [
-                'max_position_usdt'        => 100.0,
-                'min_position_usdt'        => 10.0,
+                'max_position_usdt'        => 100.0,  // макс. маржа (залог) USDT
+                'min_position_usdt'        => 10.0,   // мин. маржа (залог) USDT
                 'min_leverage'             => 1,
                 'max_leverage'             => 5,
                 'aggressiveness'           => 'balanced',

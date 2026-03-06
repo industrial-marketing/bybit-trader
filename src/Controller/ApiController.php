@@ -481,9 +481,10 @@ class ApiController extends AbstractController
             } elseif ($action === 'AVERAGE_IN_ONCE') {
                 if (!isset($alreadyAveraged[$symbol])) {
                     $sizeBefore = (float)($position['size'] ?? 0);
-                    $minPos     = max(1.0, (float)($trading['min_position_usdt'] ?? 10));
-                    $sizeUsdt   = max($minPos, (float)($d['average_size_usdt'] ?? 10.0));
                     $lev        = max(1, (int)($position['leverage'] ?? 1));
+                    $minMargin  = max(0, (float)($trading['min_position_usdt'] ?? 10));
+                    $minNotional= $minMargin * $lev;
+                    $sizeUsdt   = max($minNotional, (float)($d['average_size_usdt'] ?? 10.0));
                     $bybitSide  = strtoupper($side) === 'BUY' ? 'BUY' : 'SELL';
                     $result     = $this->bybitService->placeOrder($symbol, $bybitSide, $sizeUsdt, $lev);
                     $eventType  = 'average_in';
@@ -728,8 +729,6 @@ class ApiController extends AbstractController
             $eventType        = 'close_full';
             $realizedEstimate = $action['pnlAtDecision'] ?? null;
         } elseif ($actType === 'AVERAGE_IN_ONCE') {
-            $minPos   = max(1.0, (float)($trading['min_position_usdt'] ?? 10));
-            $sizeUsdt = max($minPos, (float)($action['average_size_usdt'] ?? 10.0));
             $lev       = 1;
             foreach ($this->bybitService->getPositions() as $p) {
                 if (($p['symbol'] ?? '') === $symbol && ($p['side'] ?? '') === $side) {
@@ -737,7 +736,10 @@ class ApiController extends AbstractController
                     break;
                 }
             }
-            $result    = $this->bybitService->placeOrder($symbol, strtoupper($side) === 'BUY' ? 'BUY' : 'SELL', $sizeUsdt, $lev);
+            $minMargin   = max(0, (float)($trading['min_position_usdt'] ?? 10));
+            $minNotional = $minMargin * $lev;
+            $sizeUsdt    = max($minNotional, (float)($action['average_size_usdt'] ?? 10.0));
+            $result      = $this->bybitService->placeOrder($symbol, strtoupper($side) === 'BUY' ? 'BUY' : 'SELL', $sizeUsdt, $lev);
             $eventType = 'average_in';
         }
 

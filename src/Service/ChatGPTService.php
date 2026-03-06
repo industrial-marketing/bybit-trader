@@ -488,12 +488,14 @@ JSON;
         }
 
         $trading         = $this->settingsService->getTradingSettings();
-        $maxPositionUsdt = (float)($trading['max_position_usdt'] ?? 100.0);
-        $minPositionUsdt = max(0, (float)($trading['min_position_usdt'] ?? 10.0));
+        $maxMarginUsdt   = (float)($trading['max_position_usdt'] ?? 100.0);
+        $minMarginUsdt   = max(0, (float)($trading['min_position_usdt'] ?? 10.0));
         $minLev          = max(1, (int)($trading['min_leverage'] ?? 1));
         $maxLev          = max($minLev, (int)($trading['max_leverage'] ?? 5));
         $aggr            = $trading['aggressiveness'] ?? 'balanced';
-        $defaultSize     = max($minPositionUsdt, 10.0);
+        $maxNotional     = $maxMarginUsdt * $maxLev;
+        $minNotional     = $minMarginUsdt * $minLev;
+        $defaultSize     = max($minNotional, 10.0);
 
         $lines = [];
         foreach ($markets as $m) {
@@ -512,7 +514,7 @@ JSON;
         $prompt .= "\n\nRecent bot performance:\n" . $historyContext . "\n\n";
         $prompt .= "Pick 5-10 best trading opportunities (BUY or SELL, skip HOLD). Confidence ≥ 60. ";
         $prompt .= "Fees ≈ 0.06 %/side; avoid tiny-edge proposals.\n";
-        $prompt .= "Min position: {$minPositionUsdt} USDT. Default size: {$defaultSize} USDT. Leverage {$minLev}x–{$maxLev}x. Aggressiveness: {$aggr}.\n\n";
+        $prompt .= "Position size (notional): min {$minNotional} max {$maxNotional} USDT (margin min {$minMarginUsdt} max {$maxMarginUsdt}). Default size: {$defaultSize} USDT. Leverage {$minLev}x–{$maxLev}x. Aggressiveness: {$aggr}.\n\n";
         $prompt .= 'Return JSON array: [{"symbol":"X","signal":"BUY|SELL","confidence":<0-100>,"reason":"...","position_size_usdt":<n>,"leverage":<int>}]. No other text.';
 
         try {
@@ -525,7 +527,7 @@ JSON;
                 return [];
             }
 
-            $proposals = $this->parseProposalsResponse($content, $minLev, $maxLev, $maxPositionUsdt, $defaultSize, $minPositionUsdt);
+            $proposals = $this->parseProposalsResponse($content, $minLev, $maxLev, $maxNotional, $defaultSize, $minNotional);
             usort($proposals, fn($a, $b) => ($b['confidence'] ?? 0) <=> ($a['confidence'] ?? 0));
             return $proposals;
         } catch (\Exception $e) {
@@ -598,13 +600,14 @@ JSON;
 
     public function makeTradingDecision(string $symbol, array $marketData, array $currentPositions = []): array
     {
-        $trading   = $this->settingsService->getTradingSettings();
-        $analysis  = $this->analyzeMarket($symbol, $marketData);
-        $maxUsdt   = (float)($trading['max_position_usdt'] ?? 100.0);
-        $minLev    = max(1, (int)($trading['min_leverage'] ?? 1));
-        $maxLev    = max($minLev, (int)($trading['max_leverage'] ?? 5));
+        $trading     = $this->settingsService->getTradingSettings();
+        $analysis    = $this->analyzeMarket($symbol, $marketData);
+        $maxMargin   = (float)($trading['max_position_usdt'] ?? 100.0);
+        $minLev      = max(1, (int)($trading['min_leverage'] ?? 1));
+        $maxLev      = max($minLev, (int)($trading['max_leverage'] ?? 5));
+        $maxNotional = $maxMargin * $maxLev;
 
-        $positionSize = min(max((float)($analysis['position_size_usdt'] ?? $maxUsdt), 0.0), $maxUsdt);
+        $positionSize = min(max((float)($analysis['position_size_usdt'] ?? $maxNotional), 0.0), $maxNotional);
         $leverage     = min(max((int)($analysis['leverage'] ?? $minLev), $minLev), $maxLev);
 
         $decision = [
@@ -636,11 +639,12 @@ JSON;
 
     private function buildAnalysisPrompt(string $symbol, array $marketData): string
     {
-        $trading    = $this->settingsService->getTradingSettings();
-        $maxUsdt    = (float)($trading['max_position_usdt'] ?? 100.0);
-        $minLev     = max(1, (int)($trading['min_leverage'] ?? 1));
-        $maxLev     = max($minLev, (int)($trading['max_leverage'] ?? 5));
-        $aggr       = $trading['aggressiveness'] ?? 'balanced';
+        $trading      = $this->settingsService->getTradingSettings();
+        $maxMargin    = (float)($trading['max_position_usdt'] ?? 100.0);
+        $minLev       = max(1, (int)($trading['min_leverage'] ?? 1));
+        $maxLev       = max($minLev, (int)($trading['max_leverage'] ?? 5));
+        $aggr         = $trading['aggressiveness'] ?? 'balanced';
+        $maxNotional  = $maxMargin * $maxLev;
 
         $prompt = "Analyze {$symbol} and provide a trading signal.\n\n";
         if (!empty($marketData)) {
@@ -651,7 +655,7 @@ JSON;
                 }
             }
         }
-        $prompt .= "\nConstraints: maxSize={$maxUsdt} USDT, leverage {$minLev}x–{$maxLev}x, aggressiveness={$aggr}\n\n";
+        $prompt .= "\nConstraints: max margin {$maxMargin} USDT (notional up to {$maxNotional}), leverage {$minLev}x–{$maxLev}x, aggressiveness={$aggr}\n\n";
         $prompt .= 'Respond ONLY with JSON: {"signal":"BUY|SELL|HOLD","confidence":<0-100>,"reason":"...","position_size_usdt":<n>,"leverage":<int>}';
 
         return $prompt;

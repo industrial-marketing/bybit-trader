@@ -1030,6 +1030,23 @@ class BybitService
                 return ['ok' => false, 'error' => 'Не удалось получить текущую цену для ' . $symbol];
             }
 
+            // min/max_position_usdt = маржа (залог), не номинальный размер
+            $minMarginUsdt = max(0, (float)($trading['min_position_usdt'] ?? 0));
+            $maxMarginUsdt = max(0, (float)($trading['max_position_usdt'] ?? 0));
+            $marginUsdt    = $leverage > 0 ? ($positionSizeUSDT / $leverage) : 0;
+
+            if ($minMarginUsdt > 0 && $marginUsdt < $minMarginUsdt) {
+                return [
+                    'ok'              => true,
+                    'skipped'         => true,
+                    'skipReason'      => 'below_min_position',
+                    'minPositionUSDT' => $minMarginUsdt * $leverage,
+                ];
+            }
+            if ($maxMarginUsdt > 0 && $marginUsdt > $maxMarginUsdt) {
+                $positionSizeUSDT = $maxMarginUsdt * $leverage;
+            }
+
             $rawQty = $positionSizeUSDT / $price;
             if ($qtyStep > 0) {
                 $rawQty = floor($rawQty / $qtyStep) * $qtyStep;
@@ -1037,15 +1054,13 @@ class BybitService
             }
             $qty = $rawQty;
 
-            $minPositionUsdt = max(0, (float)($trading['min_position_usdt'] ?? 0));
-            $bybitMinUsdt    = $minOrderQty > 0 ? $minOrderQty * $price : 0;
-            $effectiveMin    = max($minPositionUsdt, $bybitMinUsdt);
-            if ($effectiveMin > 0 && $positionSizeUSDT < $effectiveMin) {
+            $bybitMinUsdt = $minOrderQty > 0 ? $minOrderQty * $price : 0;
+            if ($bybitMinUsdt > 0 && $positionSizeUSDT < $bybitMinUsdt) {
                 return [
                     'ok'              => true,
                     'skipped'         => true,
                     'skipReason'      => 'below_min_position',
-                    'minPositionUSDT' => $effectiveMin,
+                    'minPositionUSDT' => $bybitMinUsdt,
                 ];
             }
 
@@ -1143,9 +1158,11 @@ class BybitService
         $qty        = $size * $fraction;
         $notional   = $qty * ($markPrice > 0 ? $markPrice : 1);
 
-        $trading        = $this->settingsService->getTradingSettings();
-        $minPositionUsdt = max(0, (float)($trading['min_position_usdt'] ?? 0));
-        if ($minPositionUsdt > 0 && $notional < $minPositionUsdt) {
+        $trading       = $this->settingsService->getTradingSettings();
+        $minMarginUsdt = max(0, (float)($trading['min_position_usdt'] ?? 0));
+        $leverage      = max(1, (float)($position['leverage'] ?? 1));
+        $marginClosed  = $leverage > 0 ? ($notional / $leverage) : 0;
+        if ($minMarginUsdt > 0 && $marginClosed < $minMarginUsdt) {
             return ['ok' => true, 'skipped' => true, 'skipReason' => 'below_min_position'];
         }
 

@@ -612,8 +612,8 @@ CSS построен на custom properties:
 ### Торговые параметры
 | Параметр | Описание |
 |---|---|
-| `max_position_usdt` | Максимальный размер позиции в USDT |
-| `min_position_usdt` | Минимальный размер сделки в USDT (default: 10). Не открывать и не делать частичное закрытие ниже этой суммы. Фильтр микросделок, учитывает лимиты Bybit. |
+| `max_position_usdt` | Максимальная маржа (залог) на одну позицию в USDT (default: 100). Размер сделки = маржа × плечо. |
+| `min_position_usdt` | Минимальная маржа (залог) в USDT (default: 10). Не открывать и не делать частичное закрытие, если маржа ниже этой суммы. |
 | `min_leverage` / `max_leverage` | Диапазон плеча для LLM |
 | `aggressiveness` | conservative / balanced / aggressive |
 | `max_managed_positions` | Максимум позиций под управлением (default: 10) |
