@@ -26,55 +26,101 @@
 
     <div id="bot-status-message" class="bot-status-message"></div>
 
-    {# ── Statistics cards ───────────────────────────────────────── #}
-    <div class="stats-grid">
-        <div class="stat-card" title="Итого на счёте (включая нереализованный PnL)">
-            <h3><i class="bi bi-wallet2"></i> Баланс USDT</h3>
-            <p id="stat-balance-usdt">-</p>
+    {# ── Key metrics bar ────────────────────────────────────────── #}
+    <div class="stats-key-metrics">
+        <span class="key-metric" id="key-today-pnl"><strong>Сегодня:</strong> <span>-</span></span>
+        <span class="key-metric" id="key-7d-pnl"><strong>7д:</strong> <span>-</span></span>
+        <span class="key-metric" id="key-all-pnl"><strong>Всё время:</strong> <span>-</span></span>
+    </div>
+
+    {# ── Statistics: 4 logical groups ───────────────────────────── #}
+    <div class="stats-groups">
+        <div class="stats-group">
+            <h4 class="stats-group-title"><i class="bi bi-wallet2"></i> Account</h4>
+            <div class="stats-row">
+                <div class="stat-card stat-card-main">
+                    <span class="stat-label">Balance</span>
+                    <span class="stat-value" id="stat-balance-usdt">-</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Available</span>
+                    <span class="stat-value" id="stat-balance-available">-</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">In Positions</span>
+                    <span class="stat-value" id="stat-margin-in-positions">-</span>
+                </div>
+                <div class="stat-card stat-card-pnl">
+                    <span class="stat-label">Current PnL</span>
+                    <span class="stat-value" id="stat-unrealised-pnl">-</span>
+                </div>
+            </div>
         </div>
-        <div class="stat-card" title="Свободные средства для новых сделок">
-            <h3><i class="bi bi-cash"></i> Доступно USDT</h3>
-            <p id="stat-balance-available">-</p>
+
+        <div class="stats-group">
+            <h4 class="stats-group-title"><i class="bi bi-layers"></i> Open Positions</h4>
+            <div class="stats-row">
+                <div class="stat-card">
+                    <span class="stat-label">Positions</span>
+                    <span class="stat-value" id="stat-open-positions-count">-</span>
+                </div>
+                <div class="stat-card" id="stat-margin-card">
+                    <span class="stat-label">Margin Used</span>
+                    <span class="stat-value" id="stat-margin-used">-</span>
+                </div>
+                <div class="stat-card" id="stat-exposure-card">
+                    <span class="stat-label">Exposure</span>
+                    <span class="stat-value" id="stat-exposure">-</span>
+                </div>
+                <div class="stat-card stat-card-pnl">
+                    <span class="stat-label">Unrealized PnL</span>
+                    <span class="stat-value" id="stat-unrealized-pnl">-</span>
+                </div>
+            </div>
         </div>
-        <div class="stat-card" title="Суммарный залог (маржа) по всем открытым позициям">
-            <h3><i class="bi bi-currency-exchange"></i> В позициях (маржа)</h3>
-            <p id="stat-margin-in-positions">-</p>
+
+        <div class="stats-group">
+            <h4 class="stats-group-title"><i class="bi bi-graph-up-arrow"></i> Trading Performance</h4>
+            <div class="stats-row">
+                <div class="stat-card stat-card-main">
+                    <span class="stat-label">Total Profit</span>
+                    <span class="stat-value" id="stat-total-profit">-</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Win Rate</span>
+                    <span class="stat-value" id="stat-win-rate">-</span>
+                </div>
+                <div class="stat-card" title="Сумма прибылей ÷ сумма убытков">
+                    <span class="stat-label">Profit Factor</span>
+                    <span class="stat-value" id="stat-profit-factor">-</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Avg Profit</span>
+                    <span class="stat-value" id="stat-avg-profit">-</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Trades</span>
+                    <span class="stat-value" id="stat-total-trades">-</span>
+                </div>
+            </div>
         </div>
-        <div class="stat-card" title="Нереализованная прибыль/убыток по открытым позициям">
-            <h3><i class="bi bi-graph-up"></i> Текущий PnL</h3>
-            <p id="stat-unrealised-pnl">-</p>
-        </div>
-        <div class="stat-card" title="Число активных позиций">
-            <h3><i class="bi bi-layers"></i> Открыто позиций</h3>
-            <p id="stat-open-positions-count">-</p>
-        </div>
-        <div class="stat-card">
-            <h3><i class="bi bi-arrow-left-right"></i> Всего сделок</h3>
-            <p id="stat-total-trades">-</p>
-        </div>
-        <div class="stat-card">
-            <h3><i class="bi bi-trophy"></i> Винрейт</h3>
-            <p id="stat-win-rate">-</p>
-        </div>
-        <div class="stat-card">
-            <h3><i class="bi bi-graph-up-arrow"></i> Общая прибыль</h3>
-            <p id="stat-total-profit" class="profit">-</p>
-        </div>
-        <div class="stat-card">
-            <h3><i class="bi bi-receipt"></i> Комиссии</h3>
-            <p id="stat-total-fees" class="muted">-</p>
-        </div>
-        <div class="stat-card">
-            <h3><i class="bi bi-calculator"></i> Средняя прибыль</h3>
-            <p id="stat-avg-profit">-</p>
-        </div>
-        <div class="stat-card">
-            <h3><i class="bi bi-graph-down-arrow"></i> Макс. просадка</h3>
-            <p id="stat-max-drawdown" class="loss">-</p>
-        </div>
-        <div class="stat-card" title="Сумма прибылей ÷ сумма убытков. &gt;1 = прибыльно, &lt;1 = убыточно. Напр. 1.5 = на $1 убытка $1.50 прибыли.">
-            <h3><i class="bi bi-percent"></i> Профит-фактор <i class="bi bi-info-circle" style="font-size:0.75em; opacity:0.7;"></i></h3>
-            <p id="stat-profit-factor">-</p>
+
+        <div class="stats-group">
+            <h4 class="stats-group-title"><i class="bi bi-shield-exclamation"></i> Risk Metrics</h4>
+            <div class="stats-row">
+                <div class="stat-card">
+                    <span class="stat-label">Max Drawdown</span>
+                    <span class="stat-value" id="stat-max-drawdown">-</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Fees Paid</span>
+                    <span class="stat-value" id="stat-total-fees">-</span>
+                </div>
+                <div class="stat-card" id="stat-avg-holding-card">
+                    <span class="stat-label">Avg Holding</span>
+                    <span class="stat-value" id="stat-avg-holding">-</span>
+                </div>
+            </div>
         </div>
     </div>
     <div id="stat-diagnostics" class="stat-diagnostics" style="display:none; margin-top:8px; padding:8px 12px; font-size:0.85rem; color:var(--muted, #666); background:rgba(0,0,0,0.05); border-radius:8px;">
@@ -98,6 +144,10 @@
             <div class="chart-container" style="position:relative; height:200px;">
                 <canvas id="pnl-bar-chart"></canvas>
             </div>
+        </div>
+        <div class="chart-container" style="position:relative; height:180px; margin-top:16px;">
+            <canvas id="pnl-equity-chart"></canvas>
+            <span style="position:absolute; left:8px; top:4px; font-size:11px; color:var(--muted,#666);">Equity (накопленный PnL) — тренд прибыльности стратегии</span>
         </div>
     </div>
 
@@ -365,21 +415,30 @@
     {# ── Trades history ────────────────────────────────────────── #}
     <div class="section" data-page="history">
         <h2><i class="bi bi-arrow-left-right"></i> Последние сделки</h2>
+        <div id="trades-summary" class="trades-summary" style="display:flex; flex-wrap:wrap; gap:20px; margin-bottom:16px; padding:16px 20px; background:rgba(0,0,0,0.08); border-radius:8px; align-items:center;">
+            <span><strong>Сегодня PnL:</strong> <span id="trades-today-pnl" class="stat-value">-</span></span>
+            <span><strong>Сделок:</strong> <span id="trades-count">-</span></span>
+            <span><strong>Винрейт:</strong> <span id="trades-winrate">-</span>%</span>
+            <span><strong>Ср. ROI:</strong> <span id="trades-avg-roi">-</span>%</span>
+        </div>
         <div class="table-container">
             <table id="trades-table">
                 <thead>
                     <tr>
                         <th>Символ</th>
                         <th>Сторона</th>
-                        <th class="num">Цена</th>
-                        <th class="num">Количество</th>
-                        <th class="num">Прибыль</th>
+                        <th class="num">Вход</th>
+                        <th class="num">Выход</th>
+                        <th class="num">PnL</th>
+                        <th class="num">ROI %</th>
+                        <th class="num">Комиссия</th>
                         <th>Статус</th>
-                        <th>Время</th>
+                        <th>Длительность</th>
+                        <th>Закрыто</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td colspan="7" class="loading">Загрузка...</td></tr>
+                    <tr><td colspan="10" class="loading">Загрузка...</td></tr>
                 </tbody>
             </table>
         </div>

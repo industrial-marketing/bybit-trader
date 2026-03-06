@@ -178,4 +178,45 @@ class PnlStatisticsService
             'days' => (int)ceil(($toDate - $fromDate) / 86400),
         ];
     }
+
+    /** Today, 7d, all-time PnL for key metrics bar. */
+    public function getPeriodPnl(): array
+    {
+        $closedRaw = $this->bybitService->getClosedPnl(500);
+        $list      = $closedRaw['list'] ?? [];
+
+        if (empty($list)) {
+            $trades = $this->bybitService->getClosedTrades(500);
+            foreach ($trades as $t) {
+                $list[] = ['closedPnl' => $t['closedPnl'] ?? 0, 'openedAt' => $t['openedAt'] ?? '', 'updatedTime' => null];
+            }
+        }
+
+        $today    = date('Y-m-d');
+        $todayPnl = 0.0;
+        $pnl7d    = 0.0;
+        $allPnl   = 0.0;
+        $now      = time();
+        $cutoff7d = $now - 7 * 86400;
+
+        foreach ($list as $r) {
+            $pnl  = (float)($r['closedPnl'] ?? $r['closed_pnl'] ?? 0);
+            $ts   = $this->extractTimestamp($r);
+            $date = $ts ? date('Y-m-d', $ts) : null;
+
+            $allPnl += $pnl;
+            if ($ts !== null && $ts >= $cutoff7d) {
+                $pnl7d += $pnl;
+            }
+            if ($date === $today) {
+                $todayPnl += $pnl;
+            }
+        }
+
+        return [
+            'today'   => round($todayPnl, 2),
+            'pnl7d'   => round($pnl7d, 2),
+            'allTime' => round($allPnl, 2),
+        ];
+    }
 }

@@ -246,6 +246,7 @@ $(document).ready(function() {
 });
 
 function loadDashboard() {
+    loadPeriodPnl();
     loadPositions();
     loadOrders();
     loadTrades();
@@ -256,6 +257,27 @@ function loadDashboard() {
     loadBotMetrics();
     loadBotDecisions();
     loadPnlCharts();
+}
+
+function loadPeriodPnl() {
+    $.get('/api/statistics/periods')
+        .done(function(data) {
+            const fmt = function(v) {
+                if (v == null) return '-';
+                const n = parseFloat(v);
+                const s = (n >= 0 ? '+' : '') + n.toFixed(2) + ' USDT';
+                return s;
+            };
+            const today = fmt(data.today);
+            const d7 = fmt(data.pnl7d);
+            const all = fmt(data.allTime);
+            $('#key-today-pnl span').text(today).removeClass('profit loss').addClass(parseFloat(data.today || 0) >= 0 ? 'profit' : 'loss');
+            $('#key-7d-pnl span').text(d7).removeClass('profit loss').addClass(parseFloat(data.pnl7d || 0) >= 0 ? 'profit' : 'loss');
+            $('#key-all-pnl span').text(all).removeClass('profit loss').addClass(parseFloat(data.allTime || 0) >= 0 ? 'profit' : 'loss');
+        })
+        .fail(function() {
+            $('#key-today-pnl span, #key-7d-pnl span, #key-all-pnl span').text('-').removeClass('profit loss');
+        });
 }
 
 function renderWhyBadge(decision) {
@@ -417,40 +439,72 @@ function loadOrders() {
         });
 }
 
+function formatDuration(ms) {
+    if (!ms || ms <= 0) return '-';
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const h = Math.floor(m / 60);
+    const d = Math.floor(h / 24);
+    if (d >= 1) return d + 'd ' + (h % 24) + 'h';
+    if (h >= 1) return h + 'h ' + (m % 60) + 'm';
+    if (m >= 1) return m + 'm ' + (s % 60) + 's';
+    return s + 's';
+}
+
+function formatTradeStatus(status) {
+        var map = { CLOSED: 'Закрыто', SETTLE: 'Расчёт', FUNDING: 'Фандинг', LIQUIDATED: 'Ликвидация', MOVE: 'Перенос', ADJUSTED: 'Коррекция' };
+        return map[String(status || '').toUpperCase()] || status || '-';
+    }
+
 function loadTrades() {
-    $.get('/api/trades?limit=50')
-        .done(function(data) {
+    $.get('/api/closed-trades?limit=50')
+        .done(function(res) {
+            const data = res.trades || [];
+            const sum = res.summary || {};
+
+            $('#trades-today-pnl').text(sum.todayPnl != null ? ((sum.todayPnl >= 0 ? '+' : '') + sum.todayPnl.toFixed(2) + ' USDT') : '-');
+            $('#trades-today-pnl').removeClass('profit loss').addClass(sum.todayPnl > 0 ? 'profit' : sum.todayPnl < 0 ? 'loss' : '');
+            $('#trades-count').text(sum.tradesCount != null ? sum.tradesCount : '-');
+            $('#trades-winrate').text(sum.winRate != null ? sum.winRate : '-');
+            $('#trades-avg-roi').text(sum.avgRoiPct != null ? sum.avgRoiPct + '%' : '-');
+
             if (data.length === 0) {
-                $('#trades-table tbody').html('<tr><td colspan="7" class="loading">Нет сделок</td></tr>');
+                $('#trades-table tbody').html('<tr><td colspan="10" class="loading">Нет закрытых сделок</td></tr>');
                 return;
             }
 
             let html = '';
-            data.slice(0, 20).forEach(function(trade) {
-                const profit = trade.closedPnl ? parseFloat(trade.closedPnl) : null;
-                const profitClass = profit !== null ? (profit >= 0 ? 'profit' : 'loss') : '';
-                const profitText = profit !== null ? (profit >= 0 ? '+' : '') + profit.toFixed(2) : '-';
+            data.forEach(function(t) {
+                const pnl = parseFloat(t.closedPnl || 0);
+                const roi = t.roiPct != null ? parseFloat(t.roiPct) : null;
+                const pnlClass = pnl > 0 ? 'profit' : pnl < 0 ? 'loss' : '';
+                const roiClass = roi !== null ? (roi > 0 ? 'profit' : roi < 0 ? 'loss' : '') : '';
+                const sideRaw = (t.side || '').toUpperCase();
+                const sideText = sideRaw === 'BUY' ? 'Long' : sideRaw === 'SELL' ? 'Short' : (t.side || '');
+                const sideClass = sideRaw === 'BUY' ? 'profit' : sideRaw === 'SELL' ? 'loss' : '';
+                const statusText = formatTradeStatus(t.status);
+                const durationText = (t.durationMs != null && t.durationMs > 0) ? formatDuration(t.durationMs) : '-';
 
-                const sideRaw = (trade.side || '').toUpperCase();
-                const sideText = sideRaw === 'BUY' ? 'Long' : sideRaw === 'SELL' ? 'Short' : (trade.side || '');
-                const sideClassSide = sideRaw === 'BUY' ? 'profit' : sideRaw === 'SELL' ? 'loss' : '';
-                
                 html += `
-                    <tr>
-                        <td><strong>${trade.symbol}</strong></td>
-                        <td class="${sideClassSide}">${sideText}</td>
-                        <td>${formatPrice(trade.price)}</td>
-                        <td>${parseFloat(trade.quantity).toFixed(4)}</td>
-                        <td class="${profitClass}">${profitText}</td>
-                        <td>${trade.status}</td>
-                        <td>${trade.openedAt}</td>
+                    <tr class="${pnlClass}">
+                        <td><strong>${t.symbol || ''}</strong></td>
+                        <td class="${sideClass}">${sideText}</td>
+                        <td class="num">${t.entryPrice > 0 ? formatPrice(t.entryPrice) : '-'}</td>
+                        <td class="num">${t.exitPrice > 0 ? formatPrice(t.exitPrice) : '-'}</td>
+                        <td class="num ${pnlClass}">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT</td>
+                        <td class="num ${roiClass}">${roi !== null ? (roi >= 0 ? '+' : '') + roi.toFixed(2) + '%' : '-'}</td>
+                        <td class="num muted">${t.fee != null ? parseFloat(t.fee).toFixed(4) : '-'}</td>
+                        <td>${statusText}</td>
+                        <td>${durationText}</td>
+                        <td>${t.closedAt || '-'}</td>
                     </tr>
                 `;
             });
             $('#trades-table tbody').html(html);
         })
         .fail(function() {
-            $('#trades-table tbody').html('<tr><td colspan="7" class="loading">Ошибка загрузки данных</td></tr>');
+            $('#trades-today-pnl, #trades-count, #trades-winrate, #trades-avg-roi').text('-');
+            $('#trades-table tbody').html('<tr><td colspan="10" class="loading">Ошибка загрузки данных</td></tr>');
         });
 }
 
@@ -504,6 +558,7 @@ function loadStatistics() {
 
 var pnlLineChart = null;
 var pnlBarChart = null;
+var pnlEquityChart = null;
 
 function loadPnlCharts() {
     var days = parseInt($('#pnl-period').val() || '30', 10);
@@ -517,8 +572,26 @@ function loadPnlCharts() {
             }
             renderPnlLineChart(data.series || []);
             renderPnlBarChart(data.bySymbol || []);
+            renderPnlEquityChart(data.series || []);
         })
         .fail(function() { console.error('PnL charts load failed'); });
+}
+
+function renderPnlEquityChart(series) {
+    var ctx = document.getElementById('pnl-equity-chart');
+    if (!ctx) return;
+    if (pnlEquityChart) pnlEquityChart.destroy();
+    var labels = series.map(function(s){ return s.date; });
+    var cum = 0;
+    var values = series.map(function(s){ cum += parseFloat(s.pnl_usdt || 0); return Math.round(cum * 100) / 100; });
+    pnlEquityChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{ label: 'Cumulative PnL', data: values, borderColor: 'rgb(33,150,243)', backgroundColor: 'rgba(33,150,243,0.15)', fill: true, tension: 0.2 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
 }
 
 function renderPnlLineChart(series) {
@@ -527,7 +600,6 @@ function renderPnlLineChart(series) {
     if (pnlLineChart) pnlLineChart.destroy();
     var labels = series.map(function(s){ return s.date; });
     var values = series.map(function(s){ return s.pnl_usdt; });
-    var colors = values.map(function(v){ return v >= 0 ? 'rgba(76,175,80,0.8)' : 'rgba(244,67,54,0.8)'; });
     pnlLineChart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -566,14 +638,12 @@ function loadBalance() {
             $('#stat-balance-usdt').text(wallet.toFixed(2) + ' USDT');
             $('#stat-balance-available').text(available.toFixed(2) + ' USDT');
 
-            const $upnl = $('#stat-unrealised-pnl');
-            $upnl.text((unrealised >= 0 ? '+' : '') + unrealised.toFixed(2) + ' USDT');
-            $upnl.removeClass('profit loss').addClass(unrealised >= 0 ? 'profit' : 'loss');
+            const upnlText = (unrealised >= 0 ? '+' : '') + unrealised.toFixed(2) + ' USDT';
+            $('#stat-unrealised-pnl, #stat-unrealized-pnl').text(upnlText).removeClass('profit loss').addClass(unrealised >= 0 ? 'profit' : 'loss');
         })
         .fail(function() {
-            $('#stat-balance-usdt').text('-');
-            $('#stat-balance-available').text('-');
-            $('#stat-unrealised-pnl').text('-').removeClass('profit loss');
+            $('#stat-balance-usdt, #stat-balance-available').text('-');
+            $('#stat-unrealised-pnl, #stat-unrealized-pnl').text('-').removeClass('profit loss');
         });
 }
 

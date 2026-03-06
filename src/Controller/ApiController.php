@@ -83,6 +83,12 @@ class ApiController extends AbstractController
         return $this->json($this->bybitService->getStatistics());
     }
 
+    #[Route('/statistics/periods', name: 'api_statistics_periods', methods: ['GET'])]
+    public function getPeriodPnl(): JsonResponse
+    {
+        return $this->json($this->pnlStats->getPeriodPnl());
+    }
+
     #[Route('/statistics/pnl', name: 'api_statistics_pnl', methods: ['GET'])]
     public function getPnlStatistics(Request $request): JsonResponse
     {
@@ -131,7 +137,13 @@ class ApiController extends AbstractController
     #[Route('/closed-trades', name: 'api_closed_trades', methods: ['GET'])]
     public function getClosedTrades(Request $request): JsonResponse
     {
-        return $this->json($this->bybitService->getClosedTrades((int)($request->query->get('limit') ?? 200)));
+        $display = (bool)($request->query->get('display') ?? true);
+        $limit   = (int)($request->query->get('limit') ?? 50);
+
+        if ($display) {
+            return $this->json($this->bybitService->getClosedTradesForDisplay($limit));
+        }
+        return $this->json($this->bybitService->getClosedTrades(max($limit, 200)));
     }
 
     #[Route('/market/top', name: 'api_market_top', methods: ['GET'])]

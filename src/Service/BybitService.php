@@ -868,6 +868,182 @@ class BybitService
         }
     }
 
+    /**
+     * Closed trades for display: closed-pnl preferred (rich data), fallback to execution/list.
+     * Returns: trades (with entryPrice, exitPrice, closedPnl, fee, roiPct, status, duration, closedAt)
+     * and summary (todayPnl, tradesCount, winRate, avgRoiPct).
+     */
+    public function getClosedTradesForDisplay(int $limit = 50): array
+    {
+        $settings = $this->settingsService->getBybitSettings();
+        $empty    = ['trades' => [], 'summary' => ['todayPnl' => 0, 'tradesCount' => 0, 'winRate' => 0, 'avgRoiPct' => 0]];
+
+        if (empty($settings['api_key']) || empty($settings['api_secret'])) {
+            return $empty;
+        }
+
+        $closedPnlRaw = $this->getClosedPnl(max(100, $limit));
+        $list         = $closedPnlRaw['list'] ?? [];
+
+        if (empty($list)) {
+            $execTrades = $this->getClosedTrades(max(100, $limit));
+            return $this->buildTradesDisplayFromExec($execTrades, $empty);
+        }
+
+        $trades   = [];
+        $today    = date('Y-m-d');
+        $todayPnl = 0.0;
+        $wins     = 0;
+        $totalRoi = 0.0;
+        $roiCount = 0;
+
+        foreach (array_slice($list, 0, $limit) as $t) {
+            $entryPrice  = (float)($t['avgEntryPrice'] ?? 0);
+            $exitPrice   = (float)($t['avgExitPrice'] ?? $t['orderPrice'] ?? 0);
+            $closedSize  = (float)($t['closedSize'] ?? $t['qty'] ?? 0);
+            $closedPnl   = (float)($t['closedPnl'] ?? 0);
+            $openFee     = (float)($t['openFee'] ?? 0);
+            $closeFee    = (float)($t['closeFee'] ?? 0);
+            $fee         = $openFee + $closeFee;
+            $leverage    = max(1, (int)($t['leverage'] ?? 1));
+            $positionVal = $closedSize * $entryPrice;
+            $margin      = $leverage > 0 ? ($positionVal / $leverage) : $positionVal;
+            $roiPct      = $margin > 0 ? (($closedPnl / $margin) * 100) : 0;
+
+            $createdMs = (int)($t['createdTime'] ?? 0);
+            $updatedMs = (int)($t['updatedTime'] ?? $createdMs);
+            $duration   = $updatedMs > 0 && $createdMs > 0 ? max(0, $updatedMs - $createdMs) : 0;
+
+            $closedAt   = $updatedMs > 0 ? date('Y-m-d H:i:s', (int)($updatedMs / 1000)) : '';
+            $closedDate = $closedAt ? substr($closedAt, 0, 10) : '';
+            if ($closedDate === $today) {
+                $todayPnl += $closedPnl;
+            }
+            if ($closedPnl > 0) {
+                $wins++;
+            }
+            if ($margin > 0) {
+                $totalRoi += $roiPct;
+                $roiCount++;
+            }
+
+            $execType = $t['execType'] ?? 'Trade';
+            $status   = $this->mapExecTypeToStatus($execType);
+
+            $trades[] = [
+                'id'         => $t['orderId'] ?? '',
+                'symbol'     => $t['symbol'] ?? '',
+                'side'       => $t['side'] ?? '',
+                'entryPrice' => $entryPrice,
+                'exitPrice'  => $exitPrice,
+                'quantity'   => $closedSize,
+                'closedPnl'  => $closedPnl,
+                'fee'        => $fee,
+                'roiPct'     => round($roiPct, 2),
+                'status'     => $status,
+                'durationMs' => $duration,
+                'openedAt'   => $createdMs > 0 ? date('Y-m-d H:i:s', (int)($createdMs / 1000)) : '',
+                'closedAt'   => $closedAt,
+            ];
+        }
+
+        $tradesCount = count($trades);
+        $winRate     = $tradesCount > 0 ? round(100 * $wins / $tradesCount, 1) : 0;
+        $avgRoiPct   = $roiCount > 0 ? round($totalRoi / $roiCount, 2) : 0;
+        $durations   = array_filter(array_column($trades, 'durationMs'), fn($d) => $d > 0);
+        $avgDurationMs = !empty($durations) ? (int)round(array_sum($durations) / count($durations)) : 0;
+
+        return [
+            'trades'  => $trades,
+            'summary' => [
+                'todayPnl'      => round($todayPnl, 2),
+                'tradesCount'   => $tradesCount,
+                'winRate'       => $winRate,
+                'avgRoiPct'     => $avgRoiPct,
+                'avgDurationMs' => $avgDurationMs,
+            ],
+        ];
+    }
+
+    private function mapExecTypeToStatus(string $execType): string
+    {
+        return match (strtolower($execType)) {
+            'trade'            => 'CLOSED',
+            'settle'           => 'SETTLE',
+            'sessionsettlepnl' => 'FUNDING',
+            'busttrade'        => 'LIQUIDATED',
+            'moveposition'     => 'MOVE',
+            default            => strtoupper($execType ?: 'CLOSED'),
+        };
+    }
+
+    private function buildTradesDisplayFromExec(array $execTrades, array $empty): array
+    {
+        $trades   = [];
+        $today    = date('Y-m-d');
+        $todayPnl = 0.0;
+        $wins     = 0;
+        $totalRoi = 0.0;
+        $roiCount = 0;
+
+        foreach ($execTrades as $t) {
+            $closedPnl = (float)($t['closedPnl'] ?? 0);
+            $price     = (float)($t['price'] ?? 0);
+            $qty       = (float)($t['quantity'] ?? 0);
+            $fee       = (float)($t['execFee'] ?? 0);
+            $positionVal = $price * $qty;
+            $margin    = $positionVal > 0 ? ($positionVal / 5) : 0; // exec: no leverage, approximate
+            $roiPct    = $margin > 0 ? (($closedPnl / $margin) * 100) : 0;
+
+            $openedAt = $t['openedAt'] ?? '';
+            $closedAt = $openedAt; // exec has exec time
+            $closedDate = $closedAt ? substr($closedAt, 0, 10) : '';
+            if ($closedDate === $today) {
+                $todayPnl += $closedPnl;
+            }
+            if ($closedPnl > 0) {
+                $wins++;
+            }
+            if ($margin > 0) {
+                $totalRoi += $roiPct;
+                $roiCount++;
+            }
+
+            $trades[] = [
+                'id'         => $t['id'] ?? '',
+                'symbol'     => $t['symbol'] ?? '',
+                'side'       => $t['side'] ?? '',
+                'entryPrice' => 0, // exec doesn't have entry
+                'exitPrice'  => $price,
+                'quantity'   => $qty,
+                'closedPnl'  => $closedPnl,
+                'fee'        => $fee,
+                'roiPct'     => round($roiPct, 2),
+                'status'     => $t['status'] ?? 'CLOSED',
+                'durationMs' => 0,
+                'openedAt'   => $openedAt,
+                'closedAt'   => $closedAt,
+            ];
+        }
+
+        $tradesCount   = count($trades);
+        $winRate       = $tradesCount > 0 ? round(100 * $wins / $tradesCount, 1) : 0;
+        $avgRoiPct     = $roiCount > 0 ? round($totalRoi / $roiCount, 2) : 0;
+        $durations     = array_filter(array_column($trades, 'durationMs'), fn($d) => $d > 0);
+        $avgDurationMs = !empty($durations) ? (int)round(array_sum($durations) / count($durations)) : 0;
+
+        return [
+            'trades'  => $trades,
+            'summary' => [
+                'todayPnl'      => round($todayPnl, 2),
+                'tradesCount'   => $tradesCount,
+                'winRate'       => $winRate,
+                'avgRoiPct'     => $avgRoiPct,
+                'avgDurationMs' => $avgDurationMs,
+            ],
+        ];
+    }
+
     public function getStatistics(): array
     {
         $settings   = $this->settingsService->getBybitSettings();
@@ -1317,7 +1493,8 @@ class BybitService
             'quantity'  => $t['execQty']    ?? '0',
             'closedPnl' => $t['closedPnl']  ?? null,
             'execFee'   => isset($t['execFee']) ? (float)$t['execFee'] : null,
-            'status'    => $t['execStatus'] ?? 'Unknown',
+            'execType'  => $t['execType']   ?? 'Trade',
+            'status'    => $this->mapExecTypeToStatus($t['execType'] ?? 'Trade'),
             'openedAt'  => isset($t['execTime'])
                 ? date('Y-m-d H:i:s', (int)$t['execTime'] / 1000)
                 : date('Y-m-d H:i:s'),
