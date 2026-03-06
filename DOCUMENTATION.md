@@ -534,8 +534,8 @@ CSS построен на custom properties:
 
 | Функция | Описание |
 |---|---|
-| `loadDashboard()` | Загружает все секции: баланс, статистику, позиции, ордера, сделки, историю бота, метрики, решения, PnL charts |
-| `loadPositions()` | Таблица позиций с side-бейджами, иконочными кнопками lock/close, колонкой "Почему?" |
+| `loadDashboard()` | Загружает все секции: баланс (вкл. Текущий PnL), статистику, позиции (маржа), ордера, сделки, историю бота, метрики, PnL charts |
+| `loadPositions()` | Таблица позиций (колонка Маржа), обновляет «В позициях (маржа)» |
 | `runBotTick()` | Запускает `/api/bot/tick`, показывает `.bot-alert` в `#bot-status-message` |
 | `renderWhyBadge(decision)` | Бейдж в колонке "Почему?": action, confidence, risk, override |
 | `loadBotMetrics()` | Загружает `/api/bot/metrics`, вызывает `renderBotMetrics()` |
@@ -571,7 +571,7 @@ CSS построен на custom properties:
 | GET | `/api/closed-trades` | Закрытые позиции (query: `limit`) |
 | GET | `/api/statistics` | Торговая статистика |
 | GET | `/api/statistics/pnl` | PnL агрегаты: series (по дням), bySymbol. Query: days, groupBy, symbol, from, to |
-| GET | `/api/balance` | Баланс кошелька |
+| GET | `/api/balance` | Баланс кошелька (walletBalance, availableBalance, unrealisedPnl) |
 | GET | `/api/market/top` | Топ монет (query: `limit`, `category`) |
 | GET | `/api/market-data/{symbol}` | Данные по символу |
 | GET | `/api/market-analysis/{symbol}` | LLM-анализ монеты |

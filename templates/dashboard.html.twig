@@ -28,13 +28,25 @@
 
     {# ── Statistics cards ───────────────────────────────────────── #}
     <div class="stats-grid">
-        <div class="stat-card">
+        <div class="stat-card" title="Итого на счёте (включая нереализованный PnL)">
             <h3><i class="bi bi-wallet2"></i> Баланс USDT</h3>
             <p id="stat-balance-usdt">-</p>
         </div>
-        <div class="stat-card">
+        <div class="stat-card" title="Свободные средства для новых сделок">
             <h3><i class="bi bi-cash"></i> Доступно USDT</h3>
             <p id="stat-balance-available">-</p>
+        </div>
+        <div class="stat-card" title="Суммарный залог (маржа) по всем открытым позициям">
+            <h3><i class="bi bi-currency-exchange"></i> В позициях (маржа)</h3>
+            <p id="stat-margin-in-positions">-</p>
+        </div>
+        <div class="stat-card" title="Нереализованная прибыль/убыток по открытым позициям">
+            <h3><i class="bi bi-graph-up"></i> Текущий PnL</h3>
+            <p id="stat-unrealised-pnl">-</p>
+        </div>
+        <div class="stat-card" title="Число активных позиций">
+            <h3><i class="bi bi-layers"></i> Открыто позиций</h3>
+            <p id="stat-open-positions-count">-</p>
         </div>
         <div class="stat-card">
             <h3><i class="bi bi-arrow-left-right"></i> Всего сделок</h3>
@@ -60,8 +72,8 @@
             <h3><i class="bi bi-graph-down-arrow"></i> Макс. просадка</h3>
             <p id="stat-max-drawdown" class="loss">-</p>
         </div>
-        <div class="stat-card">
-            <h3><i class="bi bi-percent"></i> Профит-фактор</h3>
+        <div class="stat-card" title="Сумма прибылей ÷ сумма убытков. &gt;1 = прибыльно, &lt;1 = убыточно. Напр. 1.5 = на $1 убытка $1.50 прибыли.">
+            <h3><i class="bi bi-percent"></i> Профит-фактор <i class="bi bi-info-circle" style="font-size:0.75em; opacity:0.7;"></i></h3>
             <p id="stat-profit-factor">-</p>
         </div>
     </div>

@@ -295,9 +295,12 @@ function loadPositions() {
         .done(function(data) {
             if (data.length === 0) {
                 $('#positions-table tbody').html('<tr><td colspan="14" class="loading">Нет открытых позиций</td></tr>');
+                $('#stat-margin-in-positions').text('0.00 USDT');
+                $('#stat-open-positions-count').text('0');
                 return;
             }
 
+            let totalMargin = 0;
             let html = '';
             data.forEach(function(position) {
                 const pnl = parseFloat(position.unrealizedPnl || 0);
@@ -354,11 +357,15 @@ function loadPositions() {
                 `;
             });
             $('#positions-table tbody').html(html);
+            $('#stat-margin-in-positions').text(totalMargin.toFixed(2) + ' USDT');
+            $('#stat-open-positions-count').text(String(data.length));
             addPositionSymbolsToSelector(data);
             updateBotChartSymbolSelector(data);
         })
         .fail(function() {
             $('#positions-table tbody').html('<tr><td colspan="14" class="loading">Ошибка загрузки данных</td></tr>');
+            $('#stat-margin-in-positions').text('-');
+            $('#stat-open-positions-count').text('-');
         });
 }
 
@@ -554,13 +561,19 @@ function loadBalance() {
         .done(function(data) {
             const wallet = parseFloat(data.walletBalance || 0);
             const available = parseFloat(data.availableBalance || 0);
+            const unrealised = parseFloat(data.unrealisedPnl ?? data.unrealizedPnl ?? 0);
 
             $('#stat-balance-usdt').text(wallet.toFixed(2) + ' USDT');
             $('#stat-balance-available').text(available.toFixed(2) + ' USDT');
+
+            const $upnl = $('#stat-unrealised-pnl');
+            $upnl.text((unrealised >= 0 ? '+' : '') + unrealised.toFixed(2) + ' USDT');
+            $upnl.removeClass('profit loss').addClass(unrealised >= 0 ? 'profit' : 'loss');
         })
         .fail(function() {
             $('#stat-balance-usdt').text('-');
             $('#stat-balance-available').text('-');
+            $('#stat-unrealised-pnl').text('-').removeClass('profit loss');
         });
 }
 
