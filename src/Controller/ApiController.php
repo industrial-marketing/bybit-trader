@@ -648,6 +648,7 @@ class ApiController extends AbstractController
             'symbol' => $symbol, 'side' => $side,
             'positionSizeUSDT' => $size, 'leverage' => $lev,
             'ok' => $result['ok'] ?? false, 'error' => $result['error'] ?? null,
+            'orderId' => $result['orderId'] ?? null, 'positionVerified' => $result['positionVerified'] ?? false,
         ]);
 
         return $this->json($result);

@@ -988,10 +988,13 @@ function submitOpenOrder() {
         data: JSON.stringify({ symbol: symbol, side: side, positionSizeUSDT: positionSizeUSDT, leverage: leverage }),
         success: function(res) {
             if (res && res.ok !== false) {
-                $('#modal-message').text('Сделка открыта.').addClass('success');
+                if (res.positionVerified === true) {
+                    $('#modal-message').text('Позиция открыта.').addClass('success');
+                } else {
+                    $('#modal-message').text('Ордер отправлен. Проверьте позиции.').addClass('success');
+                }
                 loadPositions();
                 loadBalance();
-                // Bybit может обновлять список позиций с задержкой 1–2 сек
                 setTimeout(function() { loadPositions(); loadBalance(); }, 1500);
                 setTimeout(function() {
                     $('#open-order-modal').hide();

@@ -1314,20 +1314,36 @@ class BybitService
                 return ['ok' => false, 'error' => 'Объём сделки слишком мал (qty=0)'];
             }
 
-            // Set leverage
+            // Set leverage — обязательно перед ордером при isolated
             $emptyParams      = [];
             $bodySetLeverage  = json_encode(['category' => 'linear', 'symbol' => $symbol, 'buyLeverage' => (string)$leverage, 'sellLeverage' => (string)$leverage]);
-            $this->requestWithRetry('POST', $baseUrl . '/v5/position/set-leverage', [
+            $respLev = $this->requestWithRetry('POST', $baseUrl . '/v5/position/set-leverage', [
                 'headers' => $this->getAuthHeaders('POST', '/v5/position/set-leverage', $emptyParams, $settings, $bodySetLeverage),
                 'body'    => $bodySetLeverage,
             ]);
+            $dataLev = $respLev->toArray(false);
+            $rcLev   = $dataLev['retCode'] ?? -1;
+            $this->log("placeOrder set-leverage → retCode={$rcLev} retMsg=" . ($dataLev['retMsg'] ?? ''));
+            if ($rcLev !== 0) {
+                $errMsg = $dataLev['retMsg'] ?? 'Unknown';
+                $this->log("placeOrder abort: set-leverage failed ({$rcLev}) {$errMsg}");
+                return ['ok' => false, 'error' => "set-leverage: {$errMsg}", 'retCode' => $rcLev];
+            }
 
-            // Switch to isolated
+            // Switch to isolated — режим изолированной маржи
             $bodySwitch = json_encode(['category' => 'linear', 'symbol' => $symbol, 'tradeMode' => 1, 'buyLeverage' => (string)$leverage, 'sellLeverage' => (string)$leverage]);
-            $this->requestWithRetry('POST', $baseUrl . '/v5/position/switch-isolated', [
+            $respSw = $this->requestWithRetry('POST', $baseUrl . '/v5/position/switch-isolated', [
                 'headers' => $this->getAuthHeaders('POST', '/v5/position/switch-isolated', $emptyParams, $settings, $bodySwitch),
                 'body'    => $bodySwitch,
             ]);
+            $dataSw = $respSw->toArray(false);
+            $rcSw   = $dataSw['retCode'] ?? -1;
+            $this->log("placeOrder switch-isolated → retCode={$rcSw} retMsg=" . ($dataSw['retMsg'] ?? ''));
+            if ($rcSw !== 0) {
+                $errMsg = $dataSw['retMsg'] ?? 'Unknown';
+                $this->log("placeOrder abort: switch-isolated failed ({$rcSw}) {$errMsg}");
+                return ['ok' => false, 'error' => "switch-isolated: {$errMsg}", 'retCode' => $rcSw];
+            }
 
             // Place market order
             $bodyOrder = json_encode(['category' => 'linear', 'symbol' => $symbol, 'side' => $side, 'orderType' => 'Market', 'qty' => (string)$qty, 'positionIdx' => 0]);
@@ -1338,6 +1354,9 @@ class BybitService
 
             $data    = $response->toArray(false);
             $retCode = $data['retCode'] ?? -1;
+            $retMsg  = $data['retMsg'] ?? '';
+            $orderId = $data['result']['orderId'] ?? null;
+            $this->log("placeOrder create → retCode={$retCode} retMsg={$retMsg} orderId=" . ($orderId ?? 'n/a'));
 
             // Auto-invalidate instrument cache on qty-related errors
             if (in_array($retCode, self::QTY_ERROR_CODES, true)) {
@@ -1345,10 +1364,34 @@ class BybitService
                 $this->invalidateInstrumentCache($symbol);
             }
 
-            if ($retCode === 0) {
-                return ['ok' => true, 'result' => $data['result'] ?? []];
+            if ($retCode !== 0) {
+                return ['ok' => false, 'error' => $retMsg ?: 'Unknown error', 'retCode' => $retCode];
             }
-            return ['ok' => false, 'error' => $data['retMsg'] ?? 'Unknown error', 'retCode' => $retCode];
+
+            // Post-check: верификация, что позиция реально открылась (не только "ордер принят")
+            sleep(2);
+            $positions = $this->getPositions();
+            $posSide   = strtoupper($side) === 'BUY' ? 'Buy' : 'Sell';
+            $positionVerified = false;
+            foreach ($positions as $p) {
+                if (($p['symbol'] ?? '') === $symbol && ($p['side'] ?? '') === $posSide && (float)($p['size'] ?? 0) > 0) {
+                    $positionVerified = true;
+                    break;
+                }
+            }
+            if (!$positionVerified && $orderId) {
+                $orderInfo = $this->getOrderFromHistory($symbol, $orderId);
+                if ($orderInfo && ($orderInfo['orderStatus'] ?? '') === 'Filled') {
+                    $positionVerified = true;
+                }
+            }
+
+            return [
+                'ok'               => true,
+                'result'           => $data['result'] ?? [],
+                'orderId'          => $orderId,
+                'positionVerified' => $positionVerified,
+            ];
         } catch (\Exception $e) {
             $this->log('placeOrder Error: ' . $e->getMessage());
             return ['ok' => false, 'error' => $e->getMessage()];
