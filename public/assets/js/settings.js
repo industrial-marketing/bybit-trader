@@ -280,6 +280,10 @@ function saveTradingSettings() {
         data: JSON.stringify(settings)
     })
     .done(function(data) {
+        if (data && data.success === false) {
+            showMessage('Ошибка: ' + (data.error || 'Не удалось сохранить'), 'error');
+            return;
+        }
         showMessage('Торговые настройки сохранены успешно!', 'success');
         if (data && data.settings && data.settings.trading) {
             var t = data.settings.trading;
@@ -287,8 +291,9 @@ function saveTradingSettings() {
             $('#trading-max-position').val(t.max_position_usdt || '');
         }
     })
-    .fail(function() {
-        showMessage('Ошибка сохранения торговых настроек', 'error');
+    .fail(function(xhr) {
+        const msg = (xhr && xhr.responseJSON && xhr.responseJSON.error) || (xhr && xhr.statusText) || 'Ошибка сети';
+        showMessage('Ошибка сохранения: ' + msg, 'error');
     });
 }
 
