@@ -1383,14 +1383,14 @@ function loadBotMetrics() {
 function renderBotMetrics(m) {
     const execRate = m.execution_rate_pct != null ? m.execution_rate_pct + '%' : '—';
     const cards = [
-        { label: 'Тиков бота',      value: m.tick_count,        color: '#58a6ff' },
-        { label: 'Предложено LLM',  value: m.proposed,          color: '#58a6ff' },
-        { label: 'Исполнено',       value: m.executed,          color: '#3fb950' },
-        { label: 'Пропущено',       value: m.skipped,           color: '#d29922' },
-        { label: 'Ошибок API',      value: m.failed,            color: '#f85149' },
-        { label: 'Исп. rate',       value: execRate,            color: '#3fb950' },
-        { label: 'Сбоев LLM',      value: m.llm_failures,      color: '#f85149' },
-        { label: 'Невал. ответов',  value: m.invalid_responses, color: '#d29922' },
+        { label: 'Bot ticks',       value: m.tick_count,        color: '#58a6ff' },
+        { label: 'Proposed by LLM', value: m.proposed,          color: '#58a6ff' },
+        { label: 'Executed',        value: m.executed,          color: '#3fb950' },
+        { label: 'Skipped',         value: m.skipped,           color: '#d29922' },
+        { label: 'API errors',      value: m.failed,            color: '#f85149' },
+        { label: 'Exec. rate',      value: execRate,            color: '#3fb950' },
+        { label: 'LLM failures',   value: m.llm_failures,      color: '#f85149' },
+        { label: 'Invalid resp.',   value: m.invalid_responses, color: '#d29922' },
     ];
     let html = '<div class="metrics-cards">';
     cards.forEach(function(c) {
@@ -1405,8 +1405,8 @@ function renderBotMetrics(m) {
     // By-action table
     const ba = m.by_action || {};
     if (Object.keys(ba).length > 0) {
-        let tbl = '<h4 style="margin:0 0 8px">По типам действий (30 дней)</h4>';
-        tbl += '<table class="metrics-table"><thead><tr><th>Действие</th><th>Предл.</th><th>Исп.</th><th>Пропуск</th><th>Ошибок</th><th>Побед</th><th>Пораж.</th><th>Win%</th><th>PnL ест.</th></tr></thead><tbody>';
+        let tbl = '<h4 style="margin:0 0 8px">By action types (30 days)</h4>';
+        tbl += '<div class="table-container" style="-webkit-overflow-scrolling:touch"><table class="metrics-table" style="min-width:720px"><thead><tr><th>Action</th><th>Prop.</th><th>Exec.</th><th>Skip</th><th>Errors</th><th>Wins</th><th>Loss</th><th>Win%</th><th>PnL est.</th></tr></thead><tbody>';
         Object.entries(ba).forEach(function([action, s]) {
             const wr = s.win_rate != null ? s.win_rate + '%' : '—';
             const pnlColor = s.total_pnl >= 0 ? '#3fb950' : '#f85149';
@@ -1422,7 +1422,7 @@ function renderBotMetrics(m) {
                 <td style="color:${pnlColor}">${s.total_pnl}</td>
             </tr>`;
         });
-        tbl += '</tbody></table>';
+        tbl += '</tbody></table></div>';
         $('#metrics-by-action').html(tbl);
     } else {
         $('#metrics-by-action').html('');
@@ -1431,7 +1431,7 @@ function renderBotMetrics(m) {
     // Skip reasons
     const sr = m.skip_reasons || {};
     if (Object.keys(sr).length > 0) {
-        let html2 = '<h4 style="margin:0 0 8px">Причины пропусков</h4><div class="skip-reasons">';
+        let html2 = '<h4 style="margin:0 0 8px">Skip reasons</h4><div class="skip-reasons">';
         Object.entries(sr).forEach(function([reason, count]) {
             html2 += `<span class="skip-tag">${reason}: <strong>${count}</strong></span>`;
         });
@@ -1442,7 +1442,7 @@ function renderBotMetrics(m) {
     }
 
     if (m.data_file) {
-        $('#metrics-data-path').text('Файл: ' + m.data_file).show();
+        $('#metrics-data-path').text('File: ' + m.data_file).show();
     } else {
         $('#metrics-data-path').hide();
     }
