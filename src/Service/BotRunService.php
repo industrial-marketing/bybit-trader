@@ -1,6 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
+
+use App\Service\Storage\BotRunStorageInterface;
 
 /**
  * Idempotency guard for bot ticks.
@@ -8,12 +12,10 @@ namespace App\Service;
  * Prevents two concurrent PHP processes (cron + manual trigger) from running
  * the same bot tick for the same timeframe window simultaneously.
  *
- * State file: var/bot_runs.json (path via project_dir, overridable by VAR_DIR env).
- * All reads/writes are done under flock via AtomicFileStorage.
+ * Storage: file (var/bot_runs.json) or MySQL (bot_run) depending on ProfileContext.
  *
  * Timeframe bucket:
- *   For a 5-minute timeframe, the bucket at 10:07 is "2026-02-25T10:05".
- *   Two calls within the same 5-minute window share the same bucket key.
+ *   For a 5-minute timeframe at 10:07 → "2026-02-25T10:05".
  *
  * Lifecycle:
  *   tryStart()  → reserves the bucket, returns run_id (or null → caller skips)
@@ -25,27 +27,17 @@ namespace App\Service;
  */
 class BotRunService
 {
-    private const MAX_RUNS = 200;
-
-    private string $filePath;
-
-    public function __construct(string $projectDir)
-    {
-        $varDir = $_ENV['VAR_DIR'] ?? $_SERVER['VAR_DIR'] ?? ($projectDir . DIRECTORY_SEPARATOR . 'var');
-        $this->filePath = rtrim($varDir, '/\\') . DIRECTORY_SEPARATOR . 'bot_runs.json';
+    public function __construct(
+        private readonly BotRunStorageInterface $storage,
+    ) {
     }
-
-    // ── Public API ─────────────────────────────────────────────────
 
     /**
      * Calculate the current timeframe bucket label.
-     * E.g., 5-min timeframe at 10:07 → "2026-02-25T10:05".
      */
     public function currentBucket(int $timeframeMinutes): string
     {
-        $interval = max(1, $timeframeMinutes) * 60;
-        $bucket   = intdiv(time(), $interval) * $interval;
-        return date('Y-m-d\TH:i', $bucket);
+        return $this->storage->currentBucket($timeframeMinutes);
     }
 
     /**
@@ -54,65 +46,11 @@ class BotRunService
      * Returns a run_id string on success (caller must call finish() when done).
      * Returns null if the bucket already has a running or completed entry → caller should skip.
      *
-     * @param int $timeframeMinutes  Bot timeframe in minutes
-     * @param int $staleSec         Seconds before a 'running' entry is considered crashed (0 = auto: 2× timeframe)
+     * @param int $staleSec  Seconds before a 'running' entry is considered crashed (0 = auto: 2× timeframe)
      */
     public function tryStart(int $timeframeMinutes, int $staleSec = 0): ?string
     {
-        if ($staleSec <= 0) {
-            $staleSec = $timeframeMinutes * 60 * 2;
-        }
-
-        $bucket = $this->currentBucket($timeframeMinutes);
-        $runId  = null;
-
-        AtomicFileStorage::update($this->filePath, function (array $runs) use ($bucket, $staleSec, &$runId): array {
-            $now = time();
-
-            foreach ($runs as &$r) {
-                if (($r['timeframe_bucket'] ?? '') !== $bucket) {
-                    continue;
-                }
-
-                $status = $r['status'] ?? '';
-
-                if ($status === 'done' || $status === 'skipped') {
-                    // Bucket already completed successfully → skip
-                    return $runs;
-                }
-
-                if ($status === 'running') {
-                    $startedAt = strtotime($r['started_at'] ?? '0');
-                    if ($startedAt && ($now - $startedAt) < $staleSec) {
-                        // Another process is actively running → skip
-                        return $runs;
-                    }
-                    // Stale (crashed) — mark it and fall through to create a new entry
-                    $r['status']      = 'crashed';
-                    $r['finished_at'] = date('c');
-                }
-            }
-            unset($r);
-
-            // Create a new run entry for this bucket
-            $runId  = uniqid('run_', true);
-            $runs[] = [
-                'run_id'           => $runId,
-                'timeframe_bucket' => $bucket,
-                'status'           => 'running',
-                'started_at'       => date('c'),
-                'finished_at'      => null,
-            ];
-
-            // Keep the file from growing unboundedly
-            if (count($runs) > self::MAX_RUNS) {
-                $runs = array_slice($runs, -self::MAX_RUNS);
-            }
-
-            return $runs;
-        });
-
-        return $runId;
+        return $this->storage->tryStart($timeframeMinutes, $staleSec);
     }
 
     /**
@@ -122,17 +60,7 @@ class BotRunService
      */
     public function finish(string $runId, string $status = 'done'): void
     {
-        AtomicFileStorage::update($this->filePath, function (array $runs) use ($runId, $status): array {
-            foreach ($runs as &$r) {
-                if (($r['run_id'] ?? '') === $runId) {
-                    $r['status']      = $status;
-                    $r['finished_at'] = date('c');
-                    break;
-                }
-            }
-            unset($r);
-            return $runs;
-        });
+        $this->storage->finish($runId, $status);
     }
 
     /**
@@ -140,23 +68,14 @@ class BotRunService
      */
     public function getRecentRuns(int $limit = 30): array
     {
-        $runs = AtomicFileStorage::read($this->filePath);
-        return array_slice(array_reverse($runs), 0, $limit);
+        return $this->storage->getRecentRuns($limit);
     }
 
     /**
      * Returns true if any run for the current bucket is in 'running' state.
-     * Useful for health-check endpoints.
      */
     public function isRunning(int $timeframeMinutes): bool
     {
-        $bucket = $this->currentBucket($timeframeMinutes);
-        $runs   = AtomicFileStorage::read($this->filePath);
-        foreach ($runs as $r) {
-            if (($r['timeframe_bucket'] ?? '') === $bucket && ($r['status'] ?? '') === 'running') {
-                return true;
-            }
-        }
-        return false;
+        return $this->storage->isRunning($timeframeMinutes);
     }
 }

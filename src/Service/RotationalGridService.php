@@ -1,6 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
+
+use App\Service\Storage\PositionPlanStorageInterface;
 
 /**
  * Rotational Grid Mode — управление позицией через фиксированное число слоёв на сетке уровней.
@@ -11,15 +15,13 @@ namespace App\Service;
  *   - При возврате цены вверх нижние слои разгружаются
  *   - Освобождённые слои могут быть повторно открыты ниже
  *
- * Хранилище: var/position_plans.json
+ * Storage: file (var/position_plans.json) or MySQL (position_plan) depending on ProfileContext.
  */
 class RotationalGridService
 {
-    private string $filePath;
-
-    public function __construct()
-    {
-        $this->filePath = __DIR__ . '/../../var/position_plans.json';
+    public function __construct(
+        private readonly PositionPlanStorageInterface $storage,
+    ) {
     }
 
     private function key(string $symbol, string $side): string
@@ -30,15 +32,12 @@ class RotationalGridService
     /** @return array<string, array> */
     public function getAllPlans(): array
     {
-        $data = AtomicFileStorage::read($this->filePath);
-        return is_array($data) ? $data : [];
+        return $this->storage->getAllPlans();
     }
 
     public function getPlan(string $symbol, string $side): ?array
     {
-        $plans = $this->getAllPlans();
-        $k     = $this->key($symbol, $side);
-        return $plans[$k] ?? null;
+        return $this->storage->getPlan($symbol, $side);
     }
 
     /**
@@ -117,7 +116,7 @@ class RotationalGridService
         ];
 
         $plan['active_layers'] = $active;
-        $this->savePlan($plan);
+        $this->storage->savePlan($plan);
         return $plan;
     }
 
@@ -140,7 +139,7 @@ class RotationalGridService
 
         $removed = array_shift($active);
         $plan['active_layers'] = $active;
-        $this->savePlan($plan);
+        $this->storage->savePlan($plan);
         return $removed;
     }
 
@@ -260,10 +259,7 @@ class RotationalGridService
      */
     public function removePlan(string $symbol, string $side): void
     {
-        $plans = $this->getAllPlans();
-        $k     = $this->key($symbol, $side);
-        unset($plans[$k]);
-        AtomicFileStorage::write($this->filePath, $plans);
+        $this->storage->removePlan($symbol, $side);
     }
 
     private function nextLayerId(array $existingIds): string
@@ -279,9 +275,6 @@ class RotationalGridService
 
     private function savePlan(array $plan): void
     {
-        $plans       = $this->getAllPlans();
-        $k           = $this->key($plan['symbol'] ?? '', $plan['side'] ?? '');
-        $plans[$k]   = $plan;
-        AtomicFileStorage::write($this->filePath, $plans);
+        $this->storage->savePlan($plan);
     }
 }

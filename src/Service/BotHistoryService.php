@@ -1,39 +1,41 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
+use App\Service\Storage\BotHistoryStorageInterface;
+
 /**
- * Persistent bot event log stored in var/bot_history.json.
+ * Persistent bot event log.
  *
- * Path: project_dir/var/bot_history.json (same for web and console).
+ * Storage: file (var/bot_history.json) or MySQL (bot_history_event) depending on ProfileContext.
  * Override via VAR_DIR env: absolute path to var/ (ensures same file when cron runs from different cwd).
- *
- * All writes go through AtomicFileStorage::update() which uses flock(LOCK_EX)
- * + temp-rename to prevent JSON corruption on concurrent cron / manual runs.
  */
 class BotHistoryService
 {
-    private string $filePath;
-
-    public function __construct(string $projectDir)
-    {
-        $varDir = $_ENV['VAR_DIR'] ?? $_SERVER['VAR_DIR'] ?? ($projectDir . DIRECTORY_SEPARATOR . 'var');
-        $this->filePath = rtrim($varDir, '/\\') . DIRECTORY_SEPARATOR . 'bot_history.json';
+    public function __construct(
+        private readonly BotHistoryStorageInterface $storage,
+    ) {
     }
 
-    /** Path to var/bot_history.json (for diagnostics: cron vs web must use same path). */
+    /** Path to var/bot_history.json when using file storage; empty when using DB. */
     public function getDataFilePath(): string
     {
-        return $this->filePath;
+        return $this->storage->getDataFilePath();
     }
 
     /**
      * Check if var dir is writable (for cron vs www-data permission diagnostics).
-     * Returns null if OK, or an error message.
+     * Returns null if OK, or an error message. When using DB storage, returns null (no file to check).
      */
     public function checkVarWritable(): ?string
     {
-        $dir = dirname($this->filePath);
+        $path = $this->storage->getDataFilePath();
+        if ($path === '') {
+            return null;
+        }
+        $dir = dirname($path);
         if (!is_dir($dir)) {
             return "var dir does not exist: {$dir}";
         }
@@ -51,76 +53,19 @@ class BotHistoryService
         return null;
     }
 
-    /**
-     * Append an event to the history (atomic read-modify-write under flock).
-     */
     public function log(string $type, array $payload): void
     {
-        $event = array_merge([
-            'id'        => uniqid($type . '_', true),
-            'type'      => $type,
-            'timestamp' => date('c'),
-        ], $payload);
-
-        AtomicFileStorage::update($this->filePath, function (array $events) use ($event): array {
-            $events[] = $event;
-
-            // Trim: keep last 14 days and at most 1 000 entries
-            $since    = new \DateTimeImmutable('-14 days');
-            $filtered = [];
-            foreach ($events as $e) {
-                if (empty($e['timestamp'])) {
-                    continue;
-                }
-                try {
-                    $ts = new \DateTimeImmutable($e['timestamp']);
-                } catch (\Exception) {
-                    continue;
-                }
-                if ($ts >= $since) {
-                    $filtered[] = $e;
-                }
-            }
-            if (count($filtered) > 1000) {
-                $filtered = array_slice($filtered, -1000);
-            }
-
-            return $filtered;
-        });
+        $this->storage->log($type, $payload);
     }
 
-    /**
-     * Return events from the last $days days (shared-lock read).
-     */
     public function getRecentEvents(int $days = 7): array
     {
-        $events = AtomicFileStorage::read($this->filePath);
-        $since  = new \DateTimeImmutable("-{$days} days");
-
-        return array_values(array_filter($events, function (array $e) use ($since): bool {
-            if (empty($e['timestamp'])) {
-                return false;
-            }
-            try {
-                return new \DateTimeImmutable($e['timestamp']) >= $since;
-            } catch (\Exception) {
-                return false;
-            }
-        }));
+        return $this->storage->getRecentEvents($days);
     }
 
-    /**
-     * Return the most recent event of the given type, or null.
-     */
     public function getLastEventOfType(string $type): ?array
     {
-        $events = AtomicFileStorage::read($this->filePath);
-        for ($i = count($events) - 1; $i >= 0; $i--) {
-            if (($events[$i]['type'] ?? '') === $type) {
-                return $events[$i];
-            }
-        }
-        return null;
+        return $this->storage->getLastEventOfType($type);
     }
 
     /**

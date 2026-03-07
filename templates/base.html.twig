@@ -31,6 +31,19 @@
     };
     </script>
     {% block scripts %}{% endblock %}
+    <style>
+    .profile-dropdown { position: relative; }
+    .profile-dropdown-btn { background: none; border: none; cursor: pointer; padding: 6px 12px; color: var(--muted, #9CA3AF); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+    .profile-dropdown-btn:hover { color: var(--brand-white, #fff); }
+    .profile-dropdown-menu { display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; background: var(--panel, #0F1B2D); border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); min-width: 220px; z-index: 1000; }
+    .profile-dropdown.open .profile-dropdown-menu { display: block; }
+    .profile-option { display: block; padding: 10px 14px; color: var(--text, #E5E7EB); text-decoration: none; border-bottom: 1px solid var(--border); }
+    .profile-option:last-child { border-bottom: none; }
+    .profile-option:hover { background: rgba(255,255,255,0.06); }
+    .profile-option.active { background: rgba(245,158,11,0.15); font-weight: 600; color: var(--brand-orange, #F59E0B); }
+    .profile-chevron { font-size: 10px; transition: transform 0.2s; }
+    .profile-dropdown.open .profile-chevron { transform: rotate(180deg); }
+    </style>
 </head>
 <body>
     <nav class="navbar">
@@ -62,6 +75,24 @@
                         <span class="nav-label">History</span>
                     </a>
                 </li>
+                {% if app_profiles is defined and app_profiles|length > 0 %}
+                <li class="nav-profile-select">
+                    <div class="profile-dropdown">
+                        <button type="button" class="profile-dropdown-btn" id="profile-dropdown-btn" title="Trading profile">
+                            <i class="bi bi-person-badge-fill"></i>
+                            <span class="nav-label">{{ app_active_profile_name|default('File') }}</span>
+                            <i class="bi bi-chevron-down profile-chevron"></i>
+                        </button>
+                        <div class="profile-dropdown-menu" id="profile-dropdown-menu">
+                            {% for p in app_profiles %}
+                            <a href="#" class="profile-option{% if app_active_profile_id == p.id %} active{% endif %}" data-profile-id="{{ p.id }}">
+                                {% if p.id == 0 %}📁 {% endif %}{{ p.name }}{% if p.environment %}{{ ' (' ~ p.environment ~ ')' }}{% endif %}
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </li>
+                {% endif %}
                 <li>
                     <a href="/settings" title="Settings">
                         <i class="bi bi-gear-fill"></i>
@@ -98,5 +129,35 @@
             </div>
         </div>
     </footer>
+    <script>
+    (function() {
+        var $btn = document.getElementById('profile-dropdown-btn');
+        var $menu = document.getElementById('profile-dropdown-menu');
+        if (!$btn || !$menu) return;
+        $btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            document.querySelector('.profile-dropdown')?.classList.toggle('open');
+        });
+        document.addEventListener('click', function() {
+            document.querySelector('.profile-dropdown')?.classList.remove('open');
+        });
+        $menu.querySelectorAll('.profile-option').forEach(function(a) {
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                var id = parseInt(a.getAttribute('data-profile-id'), 10);
+                fetch('/api/profile/switch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({profile_id: id})
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    if (data.ok) { window.location.reload(); }
+                    else if (window.showToast) { window.showToast(data.error || 'Error', 'error'); }
+                }).catch(function() {
+                    if (window.showToast) window.showToast('Failed to switch profile', 'error');
+                });
+            });
+        });
+    })();
+    </script>
 </body>
 </html>

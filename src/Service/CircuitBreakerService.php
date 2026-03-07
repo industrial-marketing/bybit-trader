@@ -1,6 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
+
+use App\Service\Storage\CircuitBreakerStorageInterface;
 
 /**
  * Circuit Breaker — автоматическая пауза торговли при серии сбоев.
@@ -16,7 +20,7 @@ namespace App\Service;
  *  → auto-CLOSE после истечения cooldown_minutes  (TTL-based recovery)
  *  → ручной reset через reset() или API
  *
- * Состояние хранится в var/circuit_breaker.json (AtomicFileStorage).
+ * Storage: file (var/circuit_breaker.json) or MySQL (circuit_breaker_state) depending on ProfileContext.
  */
 class CircuitBreakerService
 {
@@ -25,8 +29,6 @@ class CircuitBreakerService
     public const TYPE_LLM_INVALID = 'llm_invalid';
 
     private const ALL_TYPES = [self::TYPE_BYBIT, self::TYPE_LLM, self::TYPE_LLM_INVALID];
-
-    private const STATE_FILE = 'var/circuit_breaker.json';
 
     private const DEFAULTS = [
         'consecutive'    => 0,
@@ -38,7 +40,9 @@ class CircuitBreakerService
 
     public function __construct(
         private readonly SettingsService $settingsService,
-    ) {}
+        private readonly CircuitBreakerStorageInterface $storage,
+    ) {
+    }
 
     // ──────────────────────────────────────────────────────────────────
     // Public API
@@ -56,8 +60,9 @@ class CircuitBreakerService
 
         $cfg       = $this->cfg();
         $threshold = $this->thresholdFor($type, $cfg);
+        $tripped   = false;
 
-        return AtomicFileStorage::update(self::STATE_FILE, function (array $state) use ($type, $reason, $threshold, $cfg): array {
+        $this->storage->updateState(function (array $state) use ($type, $reason, $threshold, $cfg, &$tripped): array {
             $entry = array_merge(self::DEFAULTS, $state[$type] ?? []);
 
             $now = time();
@@ -90,11 +95,14 @@ class CircuitBreakerService
                 $entry['reason']         = $reason !== ''
                     ? $reason
                     : "{$entry['consecutive']} consecutive {$type} failures";
+                $tripped = true;
             }
 
             $state[$type] = $entry;
             return $state;
-        }) !== [];
+        });
+
+        return $tripped;
     }
 
     /**
@@ -106,7 +114,7 @@ class CircuitBreakerService
             return;
         }
 
-        AtomicFileStorage::update(self::STATE_FILE, function (array $state) use ($type): array {
+        $this->storage->updateState(function (array $state) use ($type): array {
             $entry = array_merge(self::DEFAULTS, $state[$type] ?? []);
 
             // Never reset while circuit is still open (respect cooldown)
@@ -146,7 +154,7 @@ class CircuitBreakerService
     {
         $cfg     = $this->cfg();
         $enabled = $this->isEnabled();
-        $state   = AtomicFileStorage::read(self::STATE_FILE);
+        $state   = $this->storage->getState();
         $now     = time();
 
         $breakers    = [];
@@ -209,7 +217,7 @@ class CircuitBreakerService
      */
     public function reset(?string $type = null): void
     {
-        AtomicFileStorage::update(self::STATE_FILE, function (array $state) use ($type): array {
+        $this->storage->updateState(function (array $state) use ($type): array {
             $types = $type !== null ? [$type] : self::ALL_TYPES;
             foreach ($types as $t) {
                 $state[$t] = self::DEFAULTS;
@@ -224,7 +232,7 @@ class CircuitBreakerService
 
     private function isTypeOpen(string $type): bool
     {
-        $state = AtomicFileStorage::read(self::STATE_FILE);
+        $state = $this->storage->getState();
         $entry = array_merge(self::DEFAULTS, $state[$type] ?? []);
         if ($entry['cooldown_until'] === null) {
             return false;
