@@ -23,8 +23,8 @@ function formatPrice(price) {
 $(document).ajaxError(function(event, xhr) {
     if (xhr.status === 401) {
         document.body.innerHTML = '<div style="font-family:sans-serif;text-align:center;padding:80px;color:#e05;">' +
-            '<h2>⚠️ Сессия истекла или доступ запрещён</h2>' +
-            '<p>Пожалуйста, <a href="/">обновите страницу</a> и введите логин и пароль.</p></div>';
+            '<h2>⚠️ Session expired or access denied</h2>' +
+            '<p>Please <a href="/">refresh the page</a> and enter your login and password.</p></div>';
     }
 });
 
@@ -107,13 +107,13 @@ $(document).ready(function() {
 
         $btn.prop('disabled', true);
         $row.find('.btn-pos-lock i').removeClass('bi-lock-fill bi-unlock').addClass(newLocked ? 'bi-lock-fill' : 'bi-unlock');
-        $row.find('.btn-pos-lock').attr('title', newLocked ? 'Разблок.' : 'Замок');
+        $row.find('.btn-pos-lock').attr('title', newLocked ? 'Unlock' : 'Lock');
         const $botTd = $row.find('td').eq(11);
         $botTd.find('.lock-badge').remove();
         if (newLocked) {
             $botTd.html('<span class="lock-badge"><i class="bi bi-lock-fill"></i> LOCKED</span>');
         } else {
-            $botTd.html('<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Разрешен</span>');
+            $botTd.html('<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Allowed</span>');
         }
         $row.attr('data-locked', newLocked ? '1' : '0').data('locked', newLocked ? '1' : '0');
 
@@ -124,15 +124,15 @@ $(document).ready(function() {
             data: JSON.stringify({ symbol: symbol, side: side, locked: newLocked }),
             success: function() {
                 if (typeof window.showToast === 'function') {
-                    window.showToast(newLocked ? 'Позиция заблокирована' : 'Позиция разблокирована', 'success');
+                    window.showToast(newLocked ? 'Position locked' : 'Position unlocked', 'success');
                 }
                 loadPositions();
             },
             error: function(xhr) {
                 loadPositions();
-                const msg = xhr.responseJSON?.error || xhr.statusText || 'Ошибка';
+                const msg = xhr.responseJSON?.error || xhr.statusText || 'Error';
                 if (typeof window.showToast === 'function') {
-                    window.showToast('Замок: ' + msg, 'error');
+                    window.showToast('Lock: ' + msg, 'error');
                 } else {
                     alert(msg);
                 }
@@ -148,7 +148,7 @@ $(document).ready(function() {
         const symbol = $row.data('symbol');
         const side = $row.data('side');
         if (!symbol || !side) return;
-        if (!confirm(`Закрыть позицию ${symbol} (${side}) полностью?`)) {
+        if (!confirm(`Close position ${symbol} (${side}) completely?`)) {
             return;
         }
 
@@ -162,11 +162,11 @@ $(document).ready(function() {
                     loadPositions();
                     loadBalance();
                 } else {
-                    alert(res.error || 'Ошибка закрытия позиции');
+                    alert(res.error || 'Error closing position');
                 }
             },
             error: function(xhr) {
-                const msg = (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || 'Ошибка сети';
+                const msg = (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || 'Network error';
                 alert(msg);
             }
         });
@@ -222,7 +222,7 @@ $(document).ready(function() {
         const $modal = $('#positions-debug-modal');
         const $out = $('#positions-debug-output');
         $modal.show();
-        $out.html('Загрузка...');
+        $out.html('Loading...');
         $.get('/api/positions/debug')
             .done(function(d) {
                 const lines = [
@@ -230,14 +230,14 @@ $(document).ready(function() {
                     'retCode: ' + (d.retCode ?? '—') + ', retMsg: ' + (d.retMsg || '—'),
                     'raw_count: ' + (d.raw_count ?? '—'),
                     'with_size_gt0: ' + (d.with_size_gt0 ?? '—'),
-                    'symbols: ' + (d.symbols && d.symbols.length ? d.symbols.join(', ') : '(пусто)'),
-                    'nextPageCursor: ' + (d.nextPageCursor ? 'есть (ещё страницы!)' : 'нет'),
+                    'symbols: ' + (d.symbols && d.symbols.length ? d.symbols.join(', ') : '(empty)'),
+                    'nextPageCursor: ' + (d.nextPageCursor ? 'yes (more pages!)' : 'no'),
                     d.error ? 'error: ' + d.error : ''
                 ].filter(Boolean);
                 $out.text(lines.join('\n'));
             })
             .fail(function(xhr) {
-                $out.text('Ошибка: ' + (xhr.responseJSON?.error || xhr.statusText || xhr.status));
+                $out.text('Error: ' + (xhr.responseJSON?.error || xhr.statusText || xhr.status));
             });
     });
 
@@ -331,17 +331,17 @@ function renderWhyBadge(decision) {
     const riskColor  = risk === 'low' ? '#4caf50' : risk === 'high' ? '#f85149' : '#ff9800';
     const confText   = confidence != null ? `${confidence}%` : '';
     let overrideText = '';
-    if (skipReason === 'locked')             overrideText = '🔒 Заблок.';
-    else if (skipReason === 'cooldown')      overrideText = '⏱ Кулдаун';
-    else if (skipReason === 'strict_mode_pending') overrideText = '⚠ Ожидание';
+    if (skipReason === 'locked')             overrideText = '🔒 Locked';
+    else if (skipReason === 'cooldown')      overrideText = '⏱ Cooldown';
+    else if (skipReason === 'strict_mode_pending') overrideText = '⚠ Pending';
     else if (skipReason)                     overrideText = `⛔ ${skipReason}`;
 
     const fullTitle = [
-        action ? `Действие: ${action}` : '',
-        confText ? `Уверенность: ${confText}` : '',
-        risk ? `Риск: ${risk}` : '',
-        skipReason ? `Правило: ${skipReason}` : '',
-        reason ? `Причина: ${reason}` : '',
+        action ? `Action: ${action}` : '',
+        confText ? `Confidence: ${confText}` : '',
+        risk ? `Risk: ${risk}` : '',
+        skipReason ? `Rule: ${skipReason}` : '',
+        reason ? `Reason: ${reason}` : '',
         decision.prompt_version ? `v: ${decision.prompt_version}` : '',
     ].filter(Boolean).join('\n');
 
@@ -357,7 +357,7 @@ function loadPositions() {
     $.get('/api/positions', { _t: Date.now() })  // cache-bust
         .done(function(data) {
             if (data.length === 0) {
-                $('#positions-table tbody').html('<tr><td colspan="14" class="loading">Нет открытых позиций</td></tr>');
+                $('#positions-table tbody').html('<tr><td colspan="14" class="loading">No open positions</td></tr>');
                 $('#stat-margin-in-positions, #stat-margin-used, #stat-exposure').text('0 USDT');
                 $('#stat-open-positions-count').text('0');
                 $('#stat-margin-card').hide();
@@ -372,7 +372,7 @@ function loadPositions() {
                 const pnlClass = pnl >= 0 ? 'profit' : 'loss';
                 const pnlSign = pnl >= 0 ? '+' : '';
                 const locked = position.locked === true;
-                const botStatus = locked ? 'Заблок.' : 'Разрешен';
+                const botStatus = locked ? 'Locked' : 'Allowed';
                 const liq = position.liquidationPrice != null ? parseFloat(position.liquidationPrice) : null;
                 const liqText = liq && !isNaN(liq) && liq !== 0 ? formatPrice(liq) : '-';
                 const entryPrice = parseFloat(position.entryPrice || 0);
@@ -392,10 +392,10 @@ function loadPositions() {
                         : sideText;
                 const whyHtml = renderWhyBadge(position.lastDecision || null);
                 const lockIcon = locked ? 'bi-lock-fill' : 'bi-unlock';
-                const lockLabel = locked ? 'Разблок.' : 'Замок';
+                const lockLabel = locked ? 'Unlock' : 'Lock';
                 const botStatusHtml = locked
                     ? `<span class="lock-badge"><i class="bi bi-lock-fill"></i> LOCKED</span>`
-                    : `<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Разрешен</span>`;
+                    : `<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Allowed</span>`;
 
                 html += `
                     <tr data-symbol="${position.symbol}" data-side="${position.side}" data-locked="${locked ? '1' : '0'}">
@@ -416,7 +416,7 @@ function loadPositions() {
                             <button type="button" class="btn-small btn-icon-lock btn-pos-lock" title="${lockLabel}">
                                 <i class="bi ${lockIcon}"></i>
                             </button>
-                            <button type="button" class="btn-small btn-icon-danger btn-pos-close" title="Закрыть позицию">
+                            <button type="button" class="btn-small btn-icon-danger btn-pos-close" title="Close position">
                                 <i class="bi bi-x-circle"></i>
                             </button>
                         </td>
@@ -433,7 +433,7 @@ function loadPositions() {
             updateBotChartSymbolSelector(data);
         })
         .fail(function() {
-            $('#positions-table tbody').html('<tr><td colspan="14" class="loading">Ошибка загрузки данных</td></tr>');
+            $('#positions-table tbody').html('<tr><td colspan="14" class="loading">Error loading data</td></tr>');
             $('#stat-margin-in-positions, #stat-margin-used, #stat-exposure').text('-');
             $('#stat-open-positions-count').text('-');
             $('#stat-margin-card').show();
@@ -444,7 +444,7 @@ function loadOrders() {
     $.get('/api/orders')
         .done(function(data) {
             if (data.length === 0) {
-                $('#orders-table tbody').html('<tr><td colspan="8" class="loading">Нет открытых ордеров</td></tr>');
+                $('#orders-table tbody').html('<tr><td colspan="8" class="loading">No open orders</td></tr>');
                 return;
             }
 
@@ -484,7 +484,7 @@ function loadOrders() {
             $('#orders-table tbody').html(html);
         })
         .fail(function() {
-            $('#orders-table tbody').html('<tr><td colspan="8" class="loading">Ошибка загрузки данных</td></tr>');
+            $('#orders-table tbody').html('<tr><td colspan="8" class="loading">Error loading data</td></tr>');
         });
 }
 
@@ -501,7 +501,7 @@ function formatDuration(ms) {
 }
 
 function formatTradeStatus(status) {
-        var map = { CLOSED: 'Закрыто', SETTLE: 'Расчёт', FUNDING: 'Фандинг', LIQUIDATED: 'Ликвидация', MOVE: 'Перенос', ADJUSTED: 'Коррекция' };
+        var map = { CLOSED: 'Closed', SETTLE: 'Settle', FUNDING: 'Funding', LIQUIDATED: 'Liquidated', MOVE: 'Move', ADJUSTED: 'Adjusted' };
         return map[String(status || '').toUpperCase()] || status || '-';
     }
 
@@ -535,12 +535,12 @@ function loadTrades(cursor) {
 
             var paginationHtml = '';
             if (nextCursor) {
-                paginationHtml = '<button type="button" class="btn-secondary btn-sm" id="trades-next-page">Далее →</button>';
+                paginationHtml = '<button type="button" class="btn-secondary btn-sm" id="trades-next-page">Next →</button>';
             }
             $('#trades-pagination').html(paginationHtml).data('nextCursor', nextCursor);
 
             if (data.length === 0) {
-                $('#trades-table tbody').html('<tr><td colspan="12" class="loading">Нет закрытых сделок</td></tr>');
+                $('#trades-table tbody').html('<tr><td colspan="12" class="loading">No closed trades</td></tr>');
                 return;
             }
 
@@ -548,7 +548,7 @@ function loadTrades(cursor) {
         })
         .fail(function() {
             $('#trades-today-pnl, #trades-count, #trades-winrate, #trades-avg-roi, #trades-best, #trades-worst, #trades-avg-fee, #trades-avg-dur').text('-');
-            $('#trades-table tbody').html('<tr><td colspan="12" class="loading">Ошибка загрузки данных</td></tr>');
+            $('#trades-table tbody').html('<tr><td colspan="12" class="loading">Error loading data</td></tr>');
             $('#trades-pagination').html('');
         });
 }
@@ -642,7 +642,7 @@ function loadStatistics() {
             var diag = $('#stat-diagnostics');
             var parts = [];
             if (data.source && data.source !== 'empty') {
-                parts.push('Источник: ' + data.source);
+                parts.push('Source: ' + data.source);
                 if (data.closedTradesCount != null) parts.push('closed=' + data.closedTradesCount);
                 if (data.tradesCount != null && data.tradesCount > 0) parts.push('trades=' + data.tradesCount);
                 if (data.bybitRetCode != null && data.bybitRetCode !== 0) {
@@ -654,7 +654,7 @@ function loadStatistics() {
             else diag.hide();
         })
         .fail(function() {
-            console.error('Ошибка загрузки статистики');
+            console.error('Error loading stats');
             $('#stat-avg-holding').text('-');
         });
 }
@@ -753,12 +753,12 @@ function loadPositionPlans() {
                 var filled = layers.map(function(l){ return parseFloat(l.entry_level); });
                 var avgEntry = layers.length ? layers.reduce(function(s,l){ return s + parseFloat(l.entry_price||0); }, 0) / layers.length : anchor;
                 return '<div class="plan-card" style="padding:12px; margin-bottom:10px; background:rgba(0,0,0,0.15); border-radius:8px; border:1px solid var(--border);">' +
-                    '<strong>' + sym + ' ' + side + '</strong> — слои ' + layers.length + '/' + maxL + ' × ' + layerUsdt + ' USDT<br>' +
+                    '<strong>' + sym + ' ' + side + '</strong> — layers ' + layers.length + '/' + maxL + ' × ' + layerUsdt + ' USDT<br>' +
                     '<span style="font-size:11px; color:var(--muted);">Anchor: ' + formatPrice(anchor) + ' | Avg: ' + formatPrice(avgEntry) + '</span><br>' +
-                    '<span style="font-size:11px;">Уровни: ' + levels.map(function(l){ var v=parseFloat(l); return filled.indexOf(v)>=0 ? '<span style="color:var(--positive)">' + formatPrice(v) + '</span>' : formatPrice(v); }).join(', ') + '</span>' +
+                    '<span style="font-size:11px;">Levels: ' + levels.map(function(l){ var v=parseFloat(l); return filled.indexOf(v)>=0 ? '<span style="color:var(--positive)">' + formatPrice(v) + '</span>' : formatPrice(v); }).join(', ') + '</span>' +
                     '</div>';
             }).join('');
-            $list.html(html || '<span class="loading">Нет планов</span>');
+            $list.html(html || '<span class="loading">No plans</span>');
         })
         .fail(function() {
             $('#position-plans-section').hide();
@@ -800,13 +800,13 @@ function loadBalance() {
 function runBotTick() {
     const $btn = $('#bot-tick-btn');
     const originalText = $btn.text();
-    $btn.prop('disabled', true).text('Запуск...');
+    $btn.prop('disabled', true).text('Running...');
 
     $.ajax({
         url: '/api/bot/tick',
         method: 'POST',
         success: function(res) {
-            const msg = res && res.summary ? res.summary : (res && res.message ? res.message : 'Бот выполнен');
+            const msg = res && res.summary ? res.summary : (res && res.message ? res.message : 'Bot completed');
             console.log('Bot tick:', res);
             const alertClass = res && res.skipped ? 'warning' : 'success';
             const alertIcon  = res && res.skipped ? 'bi-skip-forward-circle' : 'bi-check-circle-fill';
@@ -817,7 +817,7 @@ function runBotTick() {
                 window.showToast(msg, res && res.skipped ? 'info' : 'success');
             }
             // Лёгкий визуальный фидбек через текст кнопки
-            $btn.text('Готово');
+            $btn.text('Done');
             // Обновим данные на дашборде после действий бота
             loadDashboard();
             loadBotDecisions();
@@ -829,12 +829,12 @@ function runBotTick() {
         error: function(xhr) {
             console.error('Bot tick error', xhr);
             $('#bot-status-message').html(
-                `<div class="bot-alert error"><i class="bi bi-exclamation-triangle-fill"></i><span>Ошибка запуска бота</span></div>`
+                `<div class="bot-alert error"><i class="bi bi-exclamation-triangle-fill"></i><span>Error running bot</span></div>`
             );
             if (typeof window.showToast === 'function') {
-                window.showToast('Ошибка запуска бота', 'error');
+                window.showToast('Error running bot', 'error');
             }
-            $btn.text('Ошибка');
+            $btn.text('Error');
             setTimeout(function() {
                 $btn.text(originalText);
             }, 2000);
@@ -850,7 +850,7 @@ function loadBotHistory() {
         .done(function(data) {
             const $tbody = $('#bot-history-table tbody');
             if (!data || data.length === 0) {
-                $tbody.html('<tr><td colspan="6" class="loading">Нет записей истории бота за последнюю неделю</td></tr>');
+                $tbody.html('<tr><td colspan="6" class="loading">No bot history records for the past week</td></tr>');
                 return;
             }
             let html = '';
@@ -861,20 +861,20 @@ function loadBotHistory() {
                 const symbol = e.symbol || '-';
 
                 let actionText = e.action || '';
-                if (!actionText && type === 'manual_open') actionText = 'Ручное открытие';
-                if (!actionText && type === 'auto_open') actionText = 'Автооткрытие';
-                if (!actionText && type === 'close_full') actionText = 'Полное закрытие';
-                if (!actionText && type === 'close_partial') actionText = 'Частичное закрытие';
-                if (!actionText && type === 'move_sl_to_be') actionText = 'Стоп в безубыток';
-                if (!actionText && type === 'average_in') actionText = 'Усреднение';
-                if (!actionText && type === 'bot_tick') actionText = 'Тик бота';
+                if (!actionText && type === 'manual_open') actionText = 'Manual open';
+                if (!actionText && type === 'auto_open') actionText = 'Auto open';
+                if (!actionText && type === 'close_full') actionText = 'Full close';
+                if (!actionText && type === 'close_partial') actionText = 'Partial close';
+                if (!actionText && type === 'move_sl_to_be') actionText = 'Move SL to BE';
+                if (!actionText && type === 'average_in') actionText = 'Average in';
+                if (!actionText && type === 'bot_tick') actionText = 'Bot tick';
                 if (!actionText) actionText = '-';
 
                 let resultText = '';
                 if (e.skipped) {
-                    resultText = 'Пропуск: ' + (e.skipReason || 'условия не выполнены');
+                    resultText = 'Skipped: ' + (e.skipReason || 'conditions not met');
                 } else if (typeof e.ok !== 'undefined') {
-                    resultText = e.ok ? 'Успех' : 'Ошибка';
+                    resultText = e.ok ? 'Success' : 'Error';
                     if (!e.ok && e.error) {
                         resultText += ': ' + e.error;
                     }
@@ -889,7 +889,7 @@ function loadBotHistory() {
                         ? parseFloat(e.pnlAtDecision).toFixed(2)
                         : 'n/a';
                     const pnlReal = parseFloat(e.realizedPnlEstimate).toFixed(2);
-                    resultText += ` (PnL до: ${pnlDec}, реализовано ≈ ${pnlReal})`;
+                    resultText += ` (PnL before: ${pnlDec}, realized ≈ ${pnlReal})`;
                 }
 
                 const note = e.note || '';
@@ -908,7 +908,7 @@ function loadBotHistory() {
             $('#bot-history-table tbody').html(html);
         })
         .fail(function() {
-            $('#bot-history-table tbody').html('<tr><td colspan="6" class="loading">Ошибка загрузки истории бота</td></tr>');
+            $('#bot-history-table tbody').html('<tr><td colspan="6" class="loading">Error loading bot history</td></tr>');
         });
 }
 
@@ -939,7 +939,7 @@ function loadTopMarkets() {
     $.get('/api/market/top?limit=50')
         .done(function(data) {
             if (!data || data.length === 0) {
-                $('#top-markets-table tbody').html('<tr><td colspan="7" class="loading">Нет данных по рынку</td></tr>');
+                $('#top-markets-table tbody').html('<tr><td colspan="7" class="loading">No market data</td></tr>');
                 return;
             }
 
@@ -969,17 +969,17 @@ function loadTopMarkets() {
             $('#top-markets-table tbody').html(html);
         })
         .fail(function() {
-            $('#top-markets-table tbody').html('<tr><td colspan="7" class="loading">Ошибка загрузки данных по рынку</td></tr>');
+            $('#top-markets-table tbody').html('<tr><td colspan="7" class="loading">Error loading market data</td></tr>');
         });
 }
 
 function loadProposals() {
     const $tbody = $('#proposals-table tbody');
-    $tbody.html('<tr><td colspan="7" class="loading">Загрузка предложений...</td></tr>');
+    $tbody.html('<tr><td colspan="7" class="loading">Loading proposals...</td></tr>');
     $.get('/api/analysis/proposals')
         .done(function(data) {
             if (!data || data.length === 0) {
-                $tbody.html('<tr><td colspan="7" class="loading">Нет предложений. Включите ChatGPT в настройках.</td></tr>');
+                $tbody.html('<tr><td colspan="7" class="loading">No proposals. Enable ChatGPT in settings.</td></tr>');
                 return;
             }
             let html = '';
@@ -995,13 +995,13 @@ function loadProposals() {
                     <td class="num">${(p.positionSizeUSDT != null ? p.positionSizeUSDT : 10).toFixed(2)}</td>
                     <td class="num">${p.leverage || 1}x</td>
                     <td title="${(p.reason || '').replace(/"/g, '&quot;')}">${(p.reason || '').substring(0, 50)}${(p.reason || '').length > 50 ? '…' : ''}</td>
-                    <td><button type="button" class="btn-open-deal btn-small"><i class="bi bi-plus-lg"></i> Открыть</button></td>
+                    <td><button type="button" class="btn-open-deal btn-small"><i class="bi bi-plus-lg"></i> Open</button></td>
                 </tr>`;
             });
             $tbody.html(html);
         })
         .fail(function() {
-            $tbody.html('<tr><td colspan="7" class="loading">Ошибка загрузки предложений</td></tr>');
+            $tbody.html('<tr><td colspan="7" class="loading">Error loading proposals</td></tr>');
         });
 }
 
@@ -1027,7 +1027,7 @@ function submitOpenOrder() {
     const positionSizeUSDT = parseFloat($('#modal-amount').val()) || 10;
     const leverage = parseInt($('#modal-leverage').val(), 10) || 1;
 
-    $('#modal-message').text('Отправка...').removeClass('error success');
+    $('#modal-message').text('Sending...').removeClass('error success');
     $('#modal-submit-btn').prop('disabled', true);
 
     $.ajax({
@@ -1038,9 +1038,9 @@ function submitOpenOrder() {
         success: function(res) {
             if (res && res.ok !== false) {
                 if (res.positionVerified === true) {
-                    $('#modal-message').text('Позиция открыта.').addClass('success');
+                    $('#modal-message').text('Position opened.').addClass('success');
                 } else {
-                    $('#modal-message').text('Ордер отправлен. Проверьте позиции.').addClass('success');
+                    $('#modal-message').text('Order sent. Check positions.').addClass('success');
                 }
                 loadPositions();
                 loadBalance();
@@ -1053,7 +1053,7 @@ function submitOpenOrder() {
             }
         },
         error: function(xhr) {
-            const msg = (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || 'Ошибка сети';
+                const msg = (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || 'Network error';
             $('#modal-message').text(msg).addClass('error');
         },
         complete: function() {
