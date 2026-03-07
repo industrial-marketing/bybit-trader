@@ -1,0 +1,82 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Profiles — Admin — Bybit Trader{% endblock %}
+
+{% block content %}
+<div class="admin-page">
+    <div class="dashboard-header" style="margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <h2><i class="bi bi-person-badge-fill"></i> Profiles (Admin)</h2>
+        <nav style="display:flex; gap:12px;">
+            <a href="{{ path('admin_dashboard') }}" class="btn-secondary">Dashboard</a>
+            <a href="{{ path('admin_users') }}" class="btn-secondary">Users</a>
+            <a href="{{ path('admin_profiles') }}" class="btn-primary">Profiles</a>
+        </nav>
+    </div>
+
+    {% for message in app.flashes('success') %}
+        <div class="flash flash-success" style="margin-bottom:16px; padding:12px 16px; background:rgba(16,185,129,0.2); border:1px solid rgba(16,185,129,0.4); border-radius:8px; color:var(--positive);">
+            {{ message }}
+        </div>
+    {% endfor %}
+    {% for message in app.flashes('error') %}
+        <div class="flash flash-error" style="margin-bottom:16px; padding:12px 16px; background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.4); border-radius:8px; color:var(--negative);">
+            {{ message }}
+        </div>
+    {% endfor %}
+
+    <p style="margin-bottom:16px; color:var(--muted); font-size:0.9rem;">
+        <i class="bi bi-info-circle"></i> Only <strong>Bot Approved</strong> profiles are used by <code>app:bot-tick</code>. Approve profiles to enable bot trading.
+    </p>
+
+    <div style="background:var(--panel); border:1px solid var(--border); border-radius:12px; overflow:hidden;">
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr style="background:rgba(0,0,0,0.2); border-bottom:1px solid var(--border);">
+                    <th style="padding:12px 16px; text-align:left;">ID</th>
+                    <th style="padding:12px 16px; text-align:left;">Name</th>
+                    <th style="padding:12px 16px; text-align:left;">User</th>
+                    <th style="padding:12px 16px; text-align:left;">Env</th>
+                    <th style="padding:12px 16px; text-align:left;">Bot Approved</th>
+                    <th style="padding:12px 16px; text-align:left;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in profiles %}
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:12px 16px;">{{ p.id }}</td>
+                    <td style="padding:12px 16px;">{{ p.name }}</td>
+                    <td style="padding:12px 16px;">{{ p.user.email }} <span style="color:var(--muted);">({{ p.user.name }})</span></td>
+                    <td style="padding:12px 16px;">
+                        <span style="font-size:0.75rem; padding:4px 8px; border-radius:6px; background:{{ p.environment == 'testnet' ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)' }};">
+                            {{ p.environment }}
+                        </span>
+                    </td>
+                    <td style="padding:12px 16px;">
+                        {% if p.isBotApproved %}
+                            <span style="color:var(--positive);"><i class="bi bi-check-circle-fill"></i> Yes</span>
+                        {% else %}
+                            <span style="color:var(--muted);"><i class="bi bi-x-circle"></i> No</span>
+                        {% endif %}
+                    </td>
+                    <td style="padding:12px 16px;">
+                        {% if p.isBotApproved %}
+                            <form method="post" action="{{ path('admin_profile_reject', {id: p.id}) }}" style="display:inline;">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token('admin_profile_reject_' ~ p.id) }}">
+                                <button type="submit" class="btn-secondary" style="font-size:0.85rem;">Reject</button>
+                            </form>
+                        {% else %}
+                            <form method="post" action="{{ path('admin_profile_approve', {id: p.id}) }}" style="display:inline;">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token('admin_profile_approve_' ~ p.id) }}">
+                                <button type="submit" class="btn-primary" style="font-size:0.85rem;">Approve</button>
+                            </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" style="padding:24px; text-align:center; color:var(--muted);">No profiles</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

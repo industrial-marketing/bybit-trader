@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Entity;
 
 use Doctrine\ORM\Mapping as ORM;
+use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
+use Symfony\Component\Security\Core\User\UserInterface;
 
 #[ORM\Entity]
 #[ORM\Table(name: 'app_user')]
-class User
+class User implements UserInterface, PasswordAuthenticatedUserInterface
 {
     public const ROLE_USER = 'user';
     public const ROLE_ADMIN = 'admin';
@@ -124,5 +126,25 @@ class User
     {
         $this->updatedAt = new \DateTimeImmutable();
         return $this;
+    }
+
+    public function getUserIdentifier(): string
+    {
+        return $this->email;
+    }
+
+    /** @return list<string> */
+    public function getRoles(): array
+    {
+        return $this->role === self::ROLE_ADMIN ? ['ROLE_ADMIN', 'ROLE_USER'] : ['ROLE_USER'];
+    }
+
+    public function getPassword(): string
+    {
+        return $this->passwordHash;
+    }
+
+    public function eraseCredentials(): void
+    {
     }
 }

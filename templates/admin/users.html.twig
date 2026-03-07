@@ -1,0 +1,49 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Users — Admin — Bybit Trader{% endblock %}
+
+{% block content %}
+<div class="admin-page">
+    <div class="dashboard-header" style="margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <h2><i class="bi bi-people-fill"></i> Users</h2>
+        <nav style="display:flex; gap:12px;">
+            <a href="{{ path('admin_dashboard') }}" class="btn-secondary">Dashboard</a>
+            <a href="{{ path('admin_users') }}" class="btn-primary">Users</a>
+            <a href="{{ path('admin_profiles') }}" class="btn-secondary">Profiles</a>
+        </nav>
+    </div>
+
+    <div style="background:var(--panel); border:1px solid var(--border); border-radius:12px; overflow:hidden;">
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr style="background:rgba(0,0,0,0.2); border-bottom:1px solid var(--border);">
+                    <th style="padding:12px 16px; text-align:left;">ID</th>
+                    <th style="padding:12px 16px; text-align:left;">Email</th>
+                    <th style="padding:12px 16px; text-align:left;">Name</th>
+                    <th style="padding:12px 16px; text-align:left;">Role</th>
+                    <th style="padding:12px 16px; text-align:left;">Active</th>
+                    <th style="padding:12px 16px; text-align:left;">Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:12px 16px;">{{ u.id }}</td>
+                    <td style="padding:12px 16px;">{{ u.email }}</td>
+                    <td style="padding:12px 16px;">{{ u.name }}</td>
+                    <td style="padding:12px 16px;">
+                        <span style="font-size:0.8rem; padding:2px 8px; border-radius:6px; background:{{ u.role == 'admin' ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.08)' }};">
+                            {{ u.role }}
+                        </span>
+                    </td>
+                    <td style="padding:12px 16px;">{{ u.isActive ? 'Yes' : 'No' }}</td>
+                    <td style="padding:12px 16px; color:var(--muted); font-size:0.9rem;">{{ u.createdAt|date('Y-m-d H:i') }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" style="padding:24px; text-align:center; color:var(--muted);">No users</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,142 @@
+{% extends 'landing/base.html.twig' %}
+
+{% block content %}
+<section class="landing-hero">
+    <div class="container">
+        <h1>AI-Powered Trading for <span>Bybit</span></h1>
+        <p class="subtitle">Run multiple trading profiles, test strategies on Bybit Testnet, and compare results using AI-driven market analysis.<br>Automate execution, control risk, and discover what strategies actually work.</p>
+        <p class="hero-trust">Supports Bybit Testnet and Live Trading<br>Multiple AI models • Multiple trading profiles • Advanced analytics</p>
+        <div class="hero-btns">
+            <a href="/register" class="btn-hero btn-primary"><i class="bi bi-play-fill"></i> Start Free on Testnet</a>
+            <a href="/login" class="btn-hero btn-secondary"><i class="bi bi-box-arrow-in-right"></i> Login</a>
+        </div>
+        <div class="landing-dashboard-preview">
+            <p class="dashboard-preview-label">Platform Preview</p>
+            <div class="placeholder">See how AI analyzes the market, manages positions, and tracks performance in real time.</div>
+        </div>
+    </div>
+</section>
+
+<section class="landing-section" id="how-it-works">
+    <div class="container">
+        <h2>How it works</h2>
+        <p class="section-subtitle">Start AI-powered trading in four simple steps.</p>
+        <div class="landing-steps">
+            <div class="landing-step">
+                <div class="step-num">1</div>
+                <h4>Connect Bybit API</h4>
+                <p>Connect your Bybit account using secure API keys.<br>Supports both testnet and live trading environments.</p>
+            </div>
+            <div class="landing-step">
+                <div class="step-num">2</div>
+                <h4>Configure trading profile</h4>
+                <p>Create a trading profile and define your strategy settings:<br>position size · entry levels · averaging rules · risk limits</p>
+            </div>
+            <div class="landing-step">
+                <div class="step-num">3</div>
+                <h4>AI analyzes the market</h4>
+                <p>Large Language Models analyze market context and generate trade suggestions based on your strategy parameters.<br>Supported providers include OpenAI and Claude, with more models coming soon.</p>
+            </div>
+            <div class="landing-step">
+                <div class="step-num">4</div>
+                <h4>Automated execution</h4>
+                <p>The bot executes trades automatically according to your rules and monitors positions in real time.<br>You stay in control while automation handles execution.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="landing-section" id="features">
+    <div class="container">
+        <h2>Features</h2>
+        <p class="section-subtitle">Everything you need for intelligent trading</p>
+        <div class="landing-features">
+            <div class="landing-feature">
+                <i class="bi bi-cpu"></i>
+                <h4>AI Market Analysis</h4>
+                <p>Advanced AI models analyze market conditions and generate trading suggestions.<br>Choose between multiple providers such as OpenAI and Claude to power your trading decisions.</p>
+            </div>
+            <div class="landing-feature">
+                <i class="bi bi-person-badge"></i>
+                <h4>Multiple Trading Profiles</h4>
+                <p>Run multiple trading environments at the same time.<br>Examples: Testnet, Testnet2, Real trading account, Strategy A, Strategy B.<br>Compare performance across profiles and discover which configuration works best.</p>
+            </div>
+            <div class="landing-feature">
+                <i class="bi bi-shield-check"></i>
+                <h4>Risk Management</h4>
+                <p>Full control over risk and position management: configurable entry levels, averaging strategies, position sizing, stop conditions.<br>Trade automation with disciplined risk management.</p>
+            </div>
+            <div class="landing-feature">
+                <i class="bi bi-graph-up"></i>
+                <h4>Performance Analytics</h4>
+                <p>Track everything that matters: Profit &amp; Loss, ROI, Win rate, Drawdown, full trade history.<br>Understand exactly how your strategies perform over time.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="landing-section">
+    <div class="container">
+        <h2>AI Models</h2>
+        <p class="section-subtitle">Powered by leading AI models</p>
+        <p style="color:var(--muted);max-width:560px;margin:0 auto 24px;">Use state-of-the-art language models to analyze market context and improve decision making.</p>
+        <p style="color:var(--muted);font-size:0.9rem;margin-bottom:24px;">Supported providers include:</p>
+        <div class="landing-ai-models">
+            <span class="landing-ai-model">OpenAI</span>
+            <span class="landing-ai-model">Claude</span>
+        </div>
+        <p style="color:var(--muted);font-size:0.9rem;margin-top:16px;">More models will be added in future updates.</p>
+    </div>
+</section>
+
+<section class="landing-section" id="security">
+    <div class="container">
+        <h2>Security</h2>
+        <p class="section-subtitle">Security first</p>
+        <p style="color:var(--muted);max-width:560px;margin:0 auto 24px;">Your account and API keys are protected using industry-standard practices.</p>
+        <div class="landing-security">
+            <div class="landing-security-item"><i class="bi bi-key"></i> API access only — no withdrawal permissions required</div>
+            <div class="landing-security-item"><i class="bi bi-lock"></i> Encrypted storage of credentials</div>
+            <div class="landing-security-item"><i class="bi bi-shield-lock"></i> Secure backend architecture</div>
+            <div class="landing-security-item"><i class="bi bi-person-badge"></i> Isolated trading profiles</div>
+        </div>
+        <p style="color:var(--muted);max-width:560px;margin:24px auto 0;font-size:0.95rem;">Your funds remain fully under your control.</p>
+    </div>
+</section>
+
+<section class="landing-section">
+    <div class="container">
+        <h2>Start risk-free with Bybit Testnet</h2>
+        <p class="section-subtitle">Experiment freely before trading real funds.</p>
+        <p style="color:var(--muted);max-width:560px;margin:0 auto;">Use virtual balance on Bybit Testnet to: test strategies, compare AI models, validate risk settings, understand bot behavior.<br>Once you're confident, switch to a real trading profile.</p>
+    </div>
+</section>
+
+<section class="landing-section" id="faq">
+    <div class="container">
+        <h2>FAQ</h2>
+        <div class="landing-faq">
+            <div class="landing-faq-item">
+                <h5>What is Bybit Trader?</h5>
+                <p>Bybit Trader is an AI-powered trading platform designed for Bybit users. You can run multiple trading profiles, use AI models for market analysis, and automate your trading strategy while keeping full control over risk settings.</p>
+            </div>
+            <div class="landing-faq-item">
+                <h5>Is it safe?</h5>
+                <p>Yes. The platform uses API keys with trading permissions only. Withdrawal access is never required. API credentials are stored in encrypted form and used only for automated trading operations.</p>
+            </div>
+            <div class="landing-faq-item">
+                <h5>Can I test the bot without risk?</h5>
+                <p>Absolutely. You can start using Bybit Testnet, which provides virtual funds for testing strategies. This allows you to experiment with AI models and profile settings before trading with real funds.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="landing-cta">
+    <div class="container">
+        <h2>Start Your AI Trading Journey</h2>
+        <p>Create an account, configure your trading profiles, and discover how different strategies perform with AI-powered market analysis.</p>
+        <a href="/register" class="btn-hero btn-primary"><i class="bi bi-person-plus"></i> Create Account</a>
+    </div>
+</section>
+{% endblock %}

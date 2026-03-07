@@ -75,6 +75,12 @@
                         <span class="nav-label">History</span>
                     </a>
                 </li>
+                <li>
+                    <a href="/profiles" title="Profiles">
+                        <i class="bi bi-person-badge"></i>
+                        <span class="nav-label">Profiles</span>
+                    </a>
+                </li>
                 {% if app_profiles is defined and app_profiles|length > 0 %}
                 <li class="nav-profile-select">
                     <div class="profile-dropdown">
@@ -99,6 +105,14 @@
                         <span class="nav-label">Settings</span>
                     </a>
                 </li>
+                {% if is_granted('ROLE_ADMIN') %}
+                <li>
+                    <a href="{{ path('admin_dashboard') }}" title="Admin">
+                        <i class="bi bi-shield-lock-fill"></i>
+                        <span class="nav-label">Admin</span>
+                    </a>
+                </li>
+                {% endif %}
                 <li>
                     <a href="/logout" class="nav-logout" title="Log out">
                         <i class="bi bi-box-arrow-right"></i>

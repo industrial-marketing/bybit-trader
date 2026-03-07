@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Account — Bybit Trader</title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body.register-page { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: var(--bg); }
+        .register-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px 48px; width: 100%; max-width: 420px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+        .register-logo { display: flex; justify-content: center; margin-bottom: 24px; }
+        .register-logo img { height: 52px; width: auto; }
+        .register-card h1 { color: var(--brand-orange); font-size: 1.35rem; margin: 0 0 6px; text-align: center; }
+        .register-card .subtitle { color: var(--muted); font-size: 0.9rem; text-align: center; margin-bottom: 28px; }
+        .register-card label { display: block; color: var(--text); font-size: 0.9rem; margin-bottom: 6px; margin-top: 16px; }
+        .register-card input { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: 0.95rem; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
+        .register-card input:focus { border-color: var(--brand-orange); }
+        .register-card button { width: 100%; margin-top: 24px; padding: 12px; background: var(--brand-orange); color: var(--brand-navy); border: none; border-radius: var(--radius-sm); font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s, transform 0.2s; }
+        .register-card button:hover { background: #d4a00a; transform: translateY(-1px); }
+        .register-card .alert-error { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.4); color: var(--negative); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 0.85rem; margin-bottom: 16px; }
+        .register-card .alert-success { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.4); color: var(--positive); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 0.85rem; margin-bottom: 16px; }
+        .register-card .login-link { text-align: center; margin-top: 20px; font-size: 0.9rem; color: var(--muted); }
+        .register-card .login-link a { color: var(--brand-orange); }
+    </style>
+</head>
+<body class="register-page">
+    <div class="register-card">
+        <div class="register-logo">
+            <img src="/assets/brand/bybit_trader_logo.png" alt="Bybit Trader">
+        </div>
+        <h1>Create Account</h1>
+        <p class="subtitle">Start your AI trading journey</p>
+
+        {% for message in app.flashes('success') %}
+            <div class="alert-success">{{ message }}</div>
+        {% endfor %}
+
+        {% if error %}
+            <div class="alert-error">{{ error }}</div>
+        {% endif %}
+
+        <form method="post">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" value="{{ last_email }}" autocomplete="email" required autofocus>
+
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" value="{{ last_name }}" autocomplete="name" required minlength="2">
+
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" autocomplete="new-password" required minlength="8">
+
+            <label for="password_confirm">Confirm Password</label>
+            <input type="password" id="password_confirm" name="password_confirm" autocomplete="new-password" required>
+
+            <button type="submit">Create Account</button>
+        </form>
+
+        <p class="login-link">Already have an account? <a href="/login">Sign in</a></p>
+    </div>
+</body>
+</html>

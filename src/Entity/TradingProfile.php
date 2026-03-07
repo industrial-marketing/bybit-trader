@@ -34,6 +34,10 @@ class TradingProfile
     #[ORM\Column(type: 'boolean')]
     private bool $createdByAdmin = false;
 
+    /** Admin must approve profile for bot-tick to run on it */
+    #[ORM\Column(type: 'boolean')]
+    private bool $isBotApproved = false;
+
     #[ORM\Column(type: 'datetime_immutable')]
     private \DateTimeImmutable $createdAt;
 
@@ -158,6 +162,17 @@ class TradingProfile
     public function setCreatedByAdmin(bool $createdByAdmin): self
     {
         $this->createdByAdmin = $createdByAdmin;
+        return $this;
+    }
+
+    public function isBotApproved(): bool
+    {
+        return $this->isBotApproved;
+    }
+
+    public function setIsBotApproved(bool $isBotApproved): self
+    {
+        $this->isBotApproved = $isBotApproved;
         return $this;
     }
 

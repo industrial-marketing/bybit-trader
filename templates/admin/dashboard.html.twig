@@ -1,0 +1,35 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Admin — Bybit Trader{% endblock %}
+
+{% block content %}
+<div class="admin-page">
+    <div class="dashboard-header" style="margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <h2><i class="bi bi-shield-lock-fill"></i> Admin</h2>
+        <nav style="display:flex; gap:12px;">
+            <a href="{{ path('admin_dashboard') }}" class="btn-secondary">Dashboard</a>
+            <a href="{{ path('admin_users') }}" class="btn-secondary">Users</a>
+            <a href="{{ path('admin_profiles') }}" class="btn-secondary">Profiles</a>
+        </nav>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:16px; margin-bottom:32px;">
+        <div style="background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:20px;">
+            <div style="font-size:2rem; font-weight:700; color:var(--brand-orange);">{{ users_count }}</div>
+            <div style="color:var(--muted); font-size:0.9rem;">Users</div>
+        </div>
+        <div style="background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:20px;">
+            <div style="font-size:2rem; font-weight:700;">{{ profiles_count }}</div>
+            <div style="color:var(--muted); font-size:0.9rem;">Total Profiles</div>
+        </div>
+        <div style="background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:20px;">
+            <div style="font-size:2rem; font-weight:700; color:var(--positive);">{{ approved_count }}</div>
+            <div style="color:var(--muted); font-size:0.9rem;">Bot Approved</div>
+        </div>
+    </div>
+
+    <p style="color:var(--muted);">
+        <i class="bi bi-info-circle"></i> Bot-tick runs for all profiles with <strong>Bot Approved</strong>. Manage profiles in <a href="{{ path('admin_profiles') }}">Profiles</a>.
+    </p>
+</div>
+{% endblock %}

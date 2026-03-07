@@ -2,6 +2,7 @@
 
 namespace App\Command;
 
+use App\Entity\TradingProfile;
 use App\Service\AlertService;
 use App\Service\BotHistoryService;
 use App\Service\BotRunService;
@@ -17,6 +18,8 @@ use App\Service\PositionLockService;
 use App\Service\RotationalGridService;
 use App\Service\RiskGuardService;
 use App\Service\SettingsService;
+use App\Service\Settings\ProfileContext;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -46,12 +49,20 @@ class BotTickCommand extends Command
         private readonly StrategyEngineService  $strategyEngine,
         private readonly StrategyProfileService $strategyProfile,
         private readonly RotationalGridService  $rotationalGrid,
+        private readonly EntityManagerInterface $em,
+        private readonly ProfileContext        $profileContext,
     ) {
         parent::__construct();
     }
 
     protected function configure(): void
     {
+        $this->addOption(
+            'profile-id',
+            null,
+            InputOption::VALUE_REQUIRED,
+            'Trading profile ID (uses ACTIVE_PROFILE_ID env if not set)',
+        );
         $this->addOption(
             'force',
             'f',
@@ -67,13 +78,58 @@ class BotTickCommand extends Command
 
         $io->title('Bybit Trader — Bot Tick');
 
-        // ── Kill-switch ──────────────────────────────────────────────────
+        $profileIdOpt = $input->getOption('profile-id');
+        $profileIdEnv = $_ENV['ACTIVE_PROFILE_ID'] ?? $_SERVER['ACTIVE_PROFILE_ID'] ?? null;
+        $singleProfileId = null;
+        if ($profileIdOpt !== null && $profileIdOpt !== '') {
+            $singleProfileId = (int) $profileIdOpt;
+        } elseif ($profileIdEnv !== null && $profileIdEnv !== '' && is_numeric($profileIdEnv)) {
+            $singleProfileId = (int) $profileIdEnv;
+        }
+
+        $profiles = [];
+        if ($singleProfileId !== null && $singleProfileId > 0) {
+            $profile = $this->em->getRepository(TradingProfile::class)->find($singleProfileId);
+            if ($profile === null) {
+                $io->error("Profile #{$singleProfileId} not found.");
+                return Command::FAILURE;
+            }
+            $profiles = [$profile];
+        } else {
+            $profiles = $this->em->getRepository(TradingProfile::class)->findBy(
+                ['isBotApproved' => true, 'isActive' => true],
+                ['id' => 'ASC']
+            );
+            if (empty($profiles)) {
+                $io->note('No admin-approved profiles. Approve profiles in Admin panel or use --profile-id=N.');
+                return Command::SUCCESS;
+            }
+        }
+
+        $exitCode = Command::SUCCESS;
+        foreach ($profiles as $profile) {
+            $this->profileContext->setActiveProfileId($profile->getId());
+            $io->section("Profile: {$profile->getName()} (#{$profile->getId()}) [{$profile->getEnvironment()}]");
+            try {
+                $result = $this->runForProfile($io, $force);
+                if ($result !== Command::SUCCESS) {
+                    $exitCode = Command::FAILURE;
+                }
+            } catch (\Throwable $e) {
+                $io->error("Profile {$profile->getName()} failed: " . $e->getMessage());
+                $exitCode = Command::FAILURE;
+            }
+        }
+        return $exitCode;
+    }
+
+    private function runForProfile(SymfonyStyle $io, bool $force): int
+    {
         if (!$this->riskGuard->isTradingEnabled()) {
             $io->warning('Trading disabled (kill-switch). Tick skipped.');
             return Command::SUCCESS;
         }
 
-        // ── Circuit Breaker ──────────────────────────────────────────────
         $cbStatus = $this->circuitBreaker->getStatus();
         if ($cbStatus['is_open']) {
             $io->warning($cbStatus['message']);
@@ -93,7 +149,6 @@ class BotTickCommand extends Command
             default               => "{$botTimeframe}m",
         };
 
-        // ── Daily loss limit ─────────────────────────────────────────────
         $dailyCheck = $this->riskGuard->checkDailyLossLimit();
         if (!$dailyCheck['ok']) {
             $this->alertService->alertRiskLimit('daily_loss_limit', ['message' => $dailyCheck['message']]);
@@ -101,7 +156,6 @@ class BotTickCommand extends Command
             return Command::SUCCESS;
         }
 
-        // ── Idempotency ──────────────────────────────────────────────────
         if ($force) {
             $io->note('--force: skipping idempotency check.');
             $runId = 'force-' . uniqid('', true);
@@ -122,17 +176,14 @@ class BotTickCommand extends Command
         }
 
         try {
-            $exitCode = $this->runTick(
+            return $this->runTick(
                 $io, $runId, $botTimeframe, $historyCandles,
                 $autoEnabled, $minPositions, $maxManaged
             );
         } catch (\Throwable $e) {
             $this->botRunService->finish($runId, 'error');
-            $io->error('Unexpected exception: ' . $e->getMessage());
-            return Command::FAILURE;
+            throw $e;
         }
-
-        return $exitCode;
     }
 
     private function runTick(

@@ -3,12 +3,10 @@ security:
         Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface: 'auto'
 
     providers:
-        app_user:
-            memory:
-                users:
-                    '%env(APP_AUTH_USER)%':
-                        password: '%env(APP_AUTH_PASSWORD_HASHED)%'
-                        roles: ['ROLE_USER']
+        app_user_provider:
+            entity:
+                class: App\Entity\User
+                property: email
 
     firewalls:
         dev:
@@ -17,19 +15,30 @@ security:
 
         main:
             pattern: ^/
-            provider: app_user
+            provider: app_user_provider
             form_login:
                 login_path: login
                 check_path: login
-                default_target_path: /
+                default_target_path: /app
                 enable_csrf: true
             logout:
                 path: logout
-                target: login
+                target: /
             lazy: true
 
     access_control:
         - { path: ^/login, roles: PUBLIC_ACCESS }
+        - { path: ^/register, roles: PUBLIC_ACCESS }
+        - { path: ^/$, roles: PUBLIC_ACCESS }
+        - { path: ^/features, roles: PUBLIC_ACCESS }
+        - { path: ^/how-it-works, roles: PUBLIC_ACCESS }
+        - { path: ^/security, roles: PUBLIC_ACCESS }
+        - { path: ^/faq, roles: PUBLIC_ACCESS }
+        - { path: ^/admin, roles: ROLE_ADMIN }
+        - { path: ^/app, roles: ROLE_USER }
+        - { path: ^/settings, roles: ROLE_USER }
+        - { path: ^/profiles, roles: ROLE_USER }
+        - { path: ^/api, roles: ROLE_USER }
         - { path: ^/, roles: ROLE_USER }
 
 when@test:

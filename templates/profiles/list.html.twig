@@ -1,0 +1,71 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}My Profiles — Bybit Trader{% endblock %}
+
+{% block content %}
+<div class="profiles-page">
+    <div class="dashboard-header" style="margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <h2><i class="bi bi-person-badge-fill"></i> My Profiles</h2>
+        <a href="{{ path('profiles_create') }}" class="btn-primary">
+            <i class="bi bi-plus-circle"></i> New Profile
+        </a>
+    </div>
+
+    {% for message in app.flashes('success') %}
+        <div class="flash flash-success" style="margin-bottom:16px; padding:12px 16px; background:rgba(16,185,129,0.2); border:1px solid rgba(16,185,129,0.4); border-radius:8px; color:var(--positive);">
+            {{ message }}
+        </div>
+    {% endfor %}
+    {% for message in app.flashes('error') %}
+        <div class="flash flash-error" style="margin-bottom:16px; padding:12px 16px; background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.4); border-radius:8px; color:var(--negative);">
+            {{ message }}
+        </div>
+    {% endfor %}
+
+    {% if profiles is empty %}
+        <div class="profiles-empty" style="padding:40px; text-align:center; background:rgba(0,0,0,0.08); border-radius:12px; border:1px dashed var(--border);">
+            <p style="color:var(--muted); margin-bottom:20px;">No profiles yet. Create your first trading profile to get started.</p>
+            <a href="{{ path('profiles_create') }}" class="btn-primary">
+                <i class="bi bi-plus-circle"></i> Create Profile
+            </a>
+        </div>
+    {% else %}
+        <div class="profiles-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:16px;">
+            {% for p in profiles %}
+            <div class="profile-card" style="background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:20px; position:relative;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+                    <h3 style="margin:0; font-size:1.1rem;">{{ p.name }}</h3>
+                    <span class="profile-env" style="font-size:0.75rem; padding:4px 8px; background:{{ p.environment == 'testnet' ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)' }}; border-radius:6px; color:{{ p.environment == 'testnet' ? 'var(--brand-orange)' : 'var(--negative)' }};">
+                        {{ p.environment }}
+                    </span>
+                </div>
+                {% if p.isDefault %}
+                    <span style="font-size:0.8rem; color:var(--brand-orange);"><i class="bi bi-star-fill"></i> Default</span>
+                {% endif %}
+                <div style="margin-top:16px; display:flex; gap:8px; flex-wrap:wrap;">
+                    <a href="{{ path('profiles_edit', {id: p.id}) }}" class="btn-secondary" style="font-size:0.85rem;">
+                        <i class="bi bi-pencil"></i> Edit
+                    </a>
+                    <form method="post" action="{{ path('profiles_switch', {id: p.id}) }}" style="display:inline;">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token('profile_switch_' ~ p.id) }}">
+                        <button type="submit" class="btn-primary" style="font-size:0.85rem;">
+                            <i class="bi bi-check2-circle"></i> Use
+                        </button>
+                    </form>
+                    <form method="post" action="{{ path('profiles_delete', {id: p.id}) }}" style="display:inline;" onsubmit="return confirm('Delete this profile? All settings will be lost.');">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token('profile_delete_' ~ p.id) }}">
+                        <button type="submit" class="btn-danger" style="font-size:0.85rem;">
+                            <i class="bi bi-trash"></i> Delete
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <p style="margin-top:24px; font-size:0.9rem; color:var(--muted);">
+        <i class="bi bi-info-circle"></i> Configure API keys and trading parameters in <a href="{{ path('settings') }}">Settings</a> for the active profile.
+    </p>
+</div>
+{% endblock %}
