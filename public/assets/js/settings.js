@@ -96,6 +96,7 @@ function loadSettings() {
 
             // Trading settings
             if (data.trading) {
+                $('#trading-required-margin-mode').val(data.trading.required_margin_mode || 'auto');
                 $('#trading-max-position').val(data.trading.max_position_usdt || '');
                 $('#trading-min-position').val(data.trading.min_position_usdt ?? '10');
                 $('#trading-min-leverage').val(data.trading.min_leverage || '');
@@ -106,6 +107,17 @@ function loadSettings() {
                 $('#trading-auto-open-enabled').prop('checked', !!data.trading.auto_open_enabled);
                 $('#trading-bot-timeframe').val(String(data.trading.bot_timeframe || '5'));
                 $('#trading-history-candles').val(data.trading.bot_history_candles || '60');
+
+                // Rotational Grid
+                $('#trading-position-mode').val(data.trading.position_mode || 'single');
+                $('#trading-max-layers').val(data.trading.max_layers ?? '3');
+                $('#trading-layer-size-usdt').val(data.trading.layer_size_usdt ?? '50');
+                $('#trading-grid-step-pct').val(data.trading.grid_step_pct ?? '5');
+                $('#trading-grid-reentry').prop('checked', data.trading.grid_reentry_enabled !== false);
+                $('#trading-unload-on-reclaim').prop('checked', data.trading.unload_on_reclaim_level !== false);
+                $('#trading-base-layer-persistent').prop('checked', data.trading.base_layer_persistent !== false);
+                $('#trading-rotation-in-trend').prop('checked', data.trading.rotation_allowed_in_trend === true);
+                $('#trading-rotation-in-chop').prop('checked', data.trading.rotation_allowed_in_chop !== false);
 
                 // Risk settings
                 $('#risk-trading-enabled').prop('checked', data.trading.trading_enabled !== false);
@@ -238,6 +250,7 @@ function saveDeepseekSettings() {
 function saveTradingSettings() {
     const settings = {
         trading: {
+            required_margin_mode: $('#trading-required-margin-mode').val() || 'auto',
             max_position_usdt: parseFloat($('#trading-max-position').val() || '0'),
             min_position_usdt: parseFloat($('#trading-min-position').val() || '10'),
             min_leverage: parseInt($('#trading-min-leverage').val() || '1', 10),
@@ -247,7 +260,16 @@ function saveTradingSettings() {
             auto_open_min_positions: parseInt($('#trading-auto-open-min').val() || '5', 10),
             auto_open_enabled: $('#trading-auto-open-enabled').is(':checked'),
             bot_timeframe: parseInt($('#trading-bot-timeframe').val() || '5', 10),
-            bot_history_candles: parseInt($('#trading-history-candles').val() || '60', 10)
+            bot_history_candles: parseInt($('#trading-history-candles').val() || '60', 10),
+            position_mode: $('#trading-position-mode').val() || 'single',
+            max_layers: parseInt($('#trading-max-layers').val() || '3', 10),
+            layer_size_usdt: parseFloat($('#trading-layer-size-usdt').val() || '50'),
+            grid_step_pct: parseFloat($('#trading-grid-step-pct').val() || '5'),
+            grid_reentry_enabled: $('#trading-grid-reentry').is(':checked'),
+            unload_on_reclaim_level: $('#trading-unload-on-reclaim').is(':checked'),
+            base_layer_persistent: $('#trading-base-layer-persistent').is(':checked'),
+            rotation_allowed_in_trend: $('#trading-rotation-in-trend').is(':checked'),
+            rotation_allowed_in_chop: $('#trading-rotation-in-chop').is(':checked')
         }
     };
 
@@ -302,7 +324,12 @@ function testBybitConnection() {
     $.get('/api/test/bybit')
         .done(function(data) {
             if (data.ok) {
-                showMessage(data.message || 'Подключение к Bybit успешно', 'success');
+                let msg = data.message || 'Подключение к Bybit успешно';
+                if (data.marginMode) {
+                    const modeLabel = { 'REGULAR_MARGIN': 'Cross', 'ISOLATED_MARGIN': 'Isolated', 'PORTFOLIO_MARGIN': 'Portfolio' }[data.marginMode] || data.marginMode;
+                    msg += ' | Режим маржи: ' + modeLabel;
+                }
+                showMessage(msg, 'success');
             } else {
                 const msg = data.retMsg || data.reason || data.error || 'Ошибка подключения к Bybit';
                 showMessage('Bybit: ' + msg, 'error');

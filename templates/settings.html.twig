@@ -118,6 +118,15 @@
         <h3><i class="bi bi-sliders"></i> Торговые параметры</h3>
         <form id="trading-settings-form">
             <div class="form-group">
+                <label>Режим маржи (UTA):</label>
+                <select id="trading-required-margin-mode" name="required_margin_mode">
+                    <option value="auto">Auto (не проверять)</option>
+                    <option value="cross">Cross (REGULAR_MARGIN)</option>
+                    <option value="isolated">Isolated (ISOLATED_MARGIN)</option>
+                </select>
+                <span class="hint">Для UTA режим задаётся на уровне аккаунта. Cross — общая маржа; Isolated — изолированная по позициям.</span>
+            </div>
+            <div class="form-group">
                 <label>Максимальная маржа (USDT):</label>
                 <input type="number" step="0.01" min="0" id="trading-max-position" name="max_position_usdt" placeholder="Например, 100">
                 <span class="hint">Макс. залог на одну позицию. Размер сделки (вход) = маржа × плечо.</span>
@@ -173,6 +182,50 @@
                 <input type="number" min="5" max="60" id="trading-history-candles" name="bot_history_candles" placeholder="60">
                 <span class="hint">Сколько последних свечей выбранного таймфрейма передавать боту при каждом анализе.</span>
             </div>
+
+            {# ── Rotational Grid Mode ──────────────────────────────────── #}
+            <div class="form-group" style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.1);">
+                <h4 style="margin-bottom:8px;"><i class="bi bi-grid-3x3-gap-fill"></i> Rotational Grid (сеточная ротация)</h4>
+                <span class="hint">Позиция из фиксированного числа слоёв. Добор на уровнях при движении против, разгрузка при отскоке.</span>
+            </div>
+            <div class="form-group">
+                <label>Режим позиции:</label>
+                <select id="trading-position-mode" name="position_mode">
+                    <option value="single">Single (одна позиция, классика)</option>
+                    <option value="rotational_grid">Rotational Grid (слои + сетка)</option>
+                </select>
+            </div>
+            <div class="form-group" id="rotational-grid-options">
+                <label>Макс. слоёв:</label>
+                <input type="number" min="2" max="5" id="trading-max-layers" name="max_layers" placeholder="3">
+                <span class="hint">Ограничение по объёму: max_layers × layer_size_usdt</span>
+            </div>
+            <div class="form-group" id="rotational-grid-layer-size">
+                <label>Размер слоя (USDT):</label>
+                <input type="number" step="1" min="10" id="trading-layer-size-usdt" name="layer_size_usdt" placeholder="50">
+            </div>
+            <div class="form-group" id="rotational-grid-step">
+                <label>Шаг сетки (%):</label>
+                <input type="number" step="0.5" min="1" max="20" id="trading-grid-step-pct" name="grid_step_pct" placeholder="5">
+                <span class="hint">Минимальная дистанция между уровнями (3–5% типично)</span>
+            </div>
+            <div class="form-group" id="rotational-grid-reentry">
+                <input type="checkbox" id="trading-grid-reentry" name="grid_reentry_enabled" checked>
+                <span>Разрешить повторный добор после разгрузки</span>
+            </div>
+            <div class="form-group" id="rotational-grid-unload">
+                <input type="checkbox" id="trading-unload-on-reclaim" name="unload_on_reclaim_level" checked>
+                <span>Закрывать 1 слой при возврате цены на уровень выше</span>
+            </div>
+            <div class="form-group" id="rotational-grid-rot-chop">
+                <input type="checkbox" id="trading-rotation-in-chop" name="rotation_allowed_in_chop" checked>
+                <span>Разрешить ротацию во флэте (chop)</span>
+            </div>
+            <div class="form-group" id="rotational-grid-rot-trend">
+                <input type="checkbox" id="trading-rotation-in-trend" name="rotation_allowed_in_trend">
+                <span>Разрешить ротацию в тренде</span>
+            </div>
+
             <div class="buttons-row">
                 <button type="submit" class="btn-primary">
                     <i class="bi bi-floppy-fill"></i> Сохранить

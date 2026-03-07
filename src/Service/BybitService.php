@@ -21,11 +21,12 @@ class BybitService
     private const RATE_LIMIT_CODE = 10006;
     // set-leverage: leverage already at requested value → continue
     private const SET_LEVERAGE_NO_CHANGE = 110043;
-    // switch-isolated: UTA не поддерживает (100028) или режим уже установлен (110026) → пропустить
-    private const SWITCH_ISOLATED_UTA_FORBIDDEN = 100028;
-    private const SWITCH_ISOLATED_NO_CHANGE    = 110026;
-
     private array $instrumentMemCache = [];
+
+    /** Bybit margin modes (account-level for UTA) */
+    public const MARGIN_REGULAR   = 'REGULAR_MARGIN';
+    public const MARGIN_ISOLATED  = 'ISOLATED_MARGIN';
+    public const MARGIN_PORTFOLIO = 'PORTFOLIO_MARGIN';
 
     public function __construct(
         private readonly HttpClientInterface $httpClient,
@@ -1219,11 +1220,96 @@ class BybitService
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // Account info & margin mode (UTA: account-level, not per-position)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * GET /v5/account/info — marginMode (REGULAR_MARGIN, ISOLATED_MARGIN, PORTFOLIO_MARGIN), unifiedMarginStatus.
+     * Для UTA режим маржи задаётся на уровне аккаунта; position/list.tradeMode deprecated.
+     */
+    public function getAccountInfo(): ?array
+    {
+        $settings = $this->settingsService->getBybitSettings();
+        if (empty($settings['api_key']) || empty($settings['api_secret'])) {
+            return null;
+        }
+        try {
+            $baseUrl  = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
+            $params   = [];
+            $response = $this->requestWithRetry('GET', $baseUrl . '/v5/account/info', [
+                'query'   => $params,
+                'headers' => $this->getAuthHeaders('GET', '/v5/account/info', $params, $settings),
+            ], 2);
+            $data = $response->toArray(false);
+            if (($data['retCode'] ?? -1) === 0 && isset($data['result'])) {
+                return [
+                    'marginMode'           => $data['result']['marginMode'] ?? 'REGULAR_MARGIN',
+                    'unifiedMarginStatus'  => $data['result']['unifiedMarginStatus'] ?? null,
+                    'updatedTime'          => $data['result']['updatedTime'] ?? null,
+                ];
+            }
+            return null;
+        } catch (\Exception $e) {
+            $this->log('getAccountInfo Error: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Optional guard: проверяет margin mode и при необходимости вызывает POST /v5/account/set-margin-mode.
+     * Для cross Bybit требует buyLeverage = sellLeverage (уже соблюдается в placeOrder).
+     *
+     * @return array{ok: bool, error?: string} — ok=true если режим совпадает или успешно переключён
+     */
+    public function ensureMarginMode(string $targetMode): array
+    {
+        $targetMode = strtoupper($targetMode);
+        if (!in_array($targetMode, ['REGULAR_MARGIN', 'ISOLATED_MARGIN', 'PORTFOLIO_MARGIN'], true)) {
+            return ['ok' => false, 'error' => "Invalid target margin mode: {$targetMode}"];
+        }
+
+        $info = $this->getAccountInfo();
+        if ($info === null) {
+            return ['ok' => false, 'error' => 'Не удалось получить account info'];
+        }
+
+        $current = $info['marginMode'] ?? 'REGULAR_MARGIN';
+        if ($current === $targetMode) {
+            $this->log("ensureMarginMode: already {$targetMode}");
+            return ['ok' => true];
+        }
+
+        $settings = $this->settingsService->getBybitSettings();
+        $baseUrl  = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
+        $body     = json_encode(['setMarginMode' => $targetMode]);
+        $emptyParams = [];
+
+        try {
+            $response = $this->requestWithRetry('POST', $baseUrl . '/v5/account/set-margin-mode', [
+                'headers' => $this->getAuthHeaders('POST', '/v5/account/set-margin-mode', $emptyParams, $settings, $body),
+                'body'    => $body,
+            ]);
+            $data   = $response->toArray(false);
+            $retCode = $data['retCode'] ?? -1;
+            $retMsg  = $data['retMsg'] ?? '';
+            $this->log("ensureMarginMode set-margin-mode → retCode={$retCode} retMsg={$retMsg}");
+
+            if ($retCode === 0) {
+                return ['ok' => true];
+            }
+            return ['ok' => false, 'error' => $retMsg ?: 'Set margin mode failed', 'retCode' => $retCode];
+        } catch (\Exception $e) {
+            $this->log('ensureMarginMode Error: ' . $e->getMessage());
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // Trading: open / close / stop-loss
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * Open a market order with isolated margin.
+     * Open a market order.
      * Validates qty against instrumentInfo; auto-refreshes instrument cache on qty errors.
      */
     public function placeOrder(string $symbol, string $side, float $positionSizeUSDT, int $leverage): array
@@ -1236,6 +1322,21 @@ class BybitService
         try {
             $baseUrl = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
             $trading = $this->settingsService->getTradingSettings();
+
+            // UTA: margin mode на уровне аккаунта. ensureMarginMode перед ордером.
+            $requiredMode = $trading['required_margin_mode'] ?? 'auto';
+            if ($requiredMode === 'cross') {
+                $guard = $this->ensureMarginMode(self::MARGIN_REGULAR);
+                if (!($guard['ok'] ?? false)) {
+                    return ['ok' => false, 'error' => 'Режим маржи: ' . ($guard['error'] ?? 'cross не установлен')];
+                }
+            } elseif ($requiredMode === 'isolated') {
+                $guard = $this->ensureMarginMode(self::MARGIN_ISOLATED);
+                if (!($guard['ok'] ?? false)) {
+                    return ['ok' => false, 'error' => 'Режим маржи: ' . ($guard['error'] ?? 'isolated не установлен')];
+                }
+            }
+            // auto: не проверяем, работаем с текущим режимом
 
             $minLevSetting = max(1, (int)($trading['min_leverage'] ?? 1));
             $maxLevSetting = max($minLevSetting, (int)($trading['max_leverage'] ?? 5));
@@ -1337,27 +1438,6 @@ class BybitService
             }
             if ($levNoChange) {
                 $this->log("placeOrder set-leverage: leverage already set, continuing");
-            }
-
-            // Switch to isolated — для classic account; UTA (100028 / unified account forbidden) не поддерживает → пропускаем
-            $bodySwitch = json_encode(['category' => 'linear', 'symbol' => $symbol, 'tradeMode' => 1, 'buyLeverage' => (string)$leverage, 'sellLeverage' => (string)$leverage]);
-            $respSw = $this->requestWithRetry('POST', $baseUrl . '/v5/position/switch-isolated', [
-                'headers' => $this->getAuthHeaders('POST', '/v5/position/switch-isolated', $emptyParams, $settings, $bodySwitch),
-                'body'    => $bodySwitch,
-            ]);
-            $dataSw = $respSw->toArray(false);
-            $rcSw   = $dataSw['retCode'] ?? -1;
-            $msgSw  = $dataSw['retMsg'] ?? '';
-            $this->log("placeOrder switch-isolated → retCode={$rcSw} retMsg={$msgSw}");
-            $swUtaskip = in_array($rcSw, [self::SWITCH_ISOLATED_UTA_FORBIDDEN, self::SWITCH_ISOLATED_NO_CHANGE], true)
-                || (stripos($msgSw, 'unified account') !== false && stripos($msgSw, 'forbidden') !== false)
-                || stripos($msgSw, 'has not been modified') !== false;
-            if ($rcSw !== 0 && !$swUtaskip) {
-                $this->log("placeOrder abort: switch-isolated failed ({$rcSw}) {$msgSw}");
-                return ['ok' => false, 'error' => "switch-isolated: {$msgSw}", 'retCode' => $rcSw];
-            }
-            if ($swUtaskip) {
-                $this->log("placeOrder switch-isolated: UTA account, margin mode at account level, skipping");
             }
 
             // Place market order
@@ -1549,10 +1629,21 @@ class BybitService
 
             if ($statusCode === 200 && ($data['retCode'] ?? -1) === 0) {
                 $offset = $this->getServerTimeOffset();
+                $info   = $this->getAccountInfo();
+                $mode   = $info['marginMode'] ?? null;
+                $modeLabel = match ($mode) {
+                    self::MARGIN_REGULAR   => 'Cross',
+                    self::MARGIN_ISOLATED  => 'Isolated',
+                    self::MARGIN_PORTFOLIO => 'Portfolio',
+                    default                => $mode ?? '—',
+                };
+                $msg = sprintf('Bybit подключён. Сдвиг часов: %+d мс. Режим маржи: %s.', $offset, $modeLabel);
                 return [
                     'ok'          => true,
-                    'message'     => sprintf('Bybit подключён. Сдвиг часов: %+d мс.', $offset),
+                    'message'     => $msg,
                     'timeOffset'  => $offset,
+                    'marginMode'  => $mode,
+                    'marginModeLabel' => $modeLabel,
                 ];
             }
             return ['ok' => false, 'statusCode' => $statusCode, 'retCode' => $data['retCode'] ?? null, 'retMsg' => $data['retMsg'] ?? $raw];

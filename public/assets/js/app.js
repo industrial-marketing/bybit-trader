@@ -264,11 +264,13 @@ function loadDashboard() {
     loadPeriodPnl();
     loadMiniEquityChart();
     loadPositions();
+    loadPositionPlans();
     loadOrders();
     loadTrades();
     loadStatistics();
     loadTopMarkets();
     loadBalance();
+    loadAccountInfo();
     loadBotHistory();
     loadBotMetrics();
     loadBotDecisions();
@@ -727,6 +729,53 @@ function renderPnlBarChart(bySymbol) {
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
+}
+
+function loadPositionPlans() {
+    $.get('/api/position-plans')
+        .done(function(data) {
+            var plans = data && typeof data === 'object' && !Array.isArray(data) ? Object.values(data) : (Array.isArray(data) ? data : []);
+            var $sec = $('#position-plans-section');
+            var $list = $('#position-plans-list');
+            if (plans.length === 0) {
+                $sec.hide();
+                return;
+            }
+            $sec.show();
+            var html = plans.map(function(p) {
+                var sym = p.symbol || '?';
+                var side = p.side || '?';
+                var layers = (p.active_layers || []);
+                var maxL = parseInt(p.max_layers, 10) || 3;
+                var layerUsdt = parseFloat(p.layer_size_usdt) || 50;
+                var anchor = parseFloat(p.anchor_price) || 0;
+                var levels = (p.levels || []).slice(0, 8);
+                var filled = layers.map(function(l){ return parseFloat(l.entry_level); });
+                var avgEntry = layers.length ? layers.reduce(function(s,l){ return s + parseFloat(l.entry_price||0); }, 0) / layers.length : anchor;
+                return '<div class="plan-card" style="padding:12px; margin-bottom:10px; background:rgba(0,0,0,0.15); border-radius:8px; border:1px solid var(--border);">' +
+                    '<strong>' + sym + ' ' + side + '</strong> — слои ' + layers.length + '/' + maxL + ' × ' + layerUsdt + ' USDT<br>' +
+                    '<span style="font-size:11px; color:var(--muted);">Anchor: ' + formatPrice(anchor) + ' | Avg: ' + formatPrice(avgEntry) + '</span><br>' +
+                    '<span style="font-size:11px;">Уровни: ' + levels.map(function(l){ var v=parseFloat(l); return filled.indexOf(v)>=0 ? '<span style="color:var(--positive)">' + formatPrice(v) + '</span>' : formatPrice(v); }).join(', ') + '</span>' +
+                    '</div>';
+            }).join('');
+            $list.html(html || '<span class="loading">Нет планов</span>');
+        })
+        .fail(function() {
+            $('#position-plans-section').hide();
+        });
+}
+
+function loadAccountInfo() {
+    $.get('/api/account-info')
+        .done(function(data) {
+            const mode = data && data.marginMode ? data.marginMode : null;
+            const labels = { REGULAR_MARGIN: 'Cross', ISOLATED_MARGIN: 'Isolated', PORTFOLIO_MARGIN: 'Portfolio' };
+            const text = mode ? (labels[mode] || mode) : '-';
+            $('#stat-margin-mode').text(text);
+        })
+        .fail(function() {
+            $('#stat-margin-mode').text('-');
+        });
 }
 
 function loadBalance() {

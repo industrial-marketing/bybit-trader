@@ -70,6 +70,10 @@
                     <span class="stat-label">Current PnL</span>
                     <span class="stat-value" id="stat-unrealised-pnl">-</span>
                 </div>
+                <div class="stat-card">
+                    <span class="stat-label">Margin Mode</span>
+                    <span class="stat-value" id="stat-margin-mode">-</span>
+                </div>
             </div>
         </div>
 
@@ -361,6 +365,13 @@
                     <i class="bi bi-grip-horizontal"></i>
                 </div>
             </div>
+        </div>
+
+        {# ── Rotational Grid: планы позиций ───────────────────────── #}
+        <div id="position-plans-section" class="position-plans-block" style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border); display:none;">
+            <h4 class="stats-group-title" style="margin-bottom:8px;"><i class="bi bi-grid-3x3-gap-fill"></i> Rotational Grid — планы</h4>
+            <p class="section-desc" style="margin-bottom:12px;">Сеточная ротация: уровни, слои, next buy / unload.</p>
+            <div id="position-plans-list" class="position-plans-list"></div>
         </div>
     </div>
 

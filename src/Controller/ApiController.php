@@ -17,6 +17,7 @@ use App\Service\StrategyProfileService;
 use App\Service\PendingActionsService;
 use App\Service\PositionLockService;
 use App\Service\RiskGuardService;
+use App\Service\RotationalGridService;
 use App\Service\SettingsService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -43,6 +44,7 @@ class ApiController extends AbstractController
         private readonly StrategyEngineService  $strategyEngine,
         private readonly StrategyProfileService $strategyProfile,
         private readonly PnlStatisticsService  $pnlStats,
+        private readonly RotationalGridService $rotationalGrid,
     ) {}
 
     // ── Positions / orders / trades ───────────────────────────────
@@ -68,6 +70,12 @@ class ApiController extends AbstractController
         unset($p);
 
         return $this->json($positions);
+    }
+
+    #[Route('/position-plans', name: 'api_position_plans', methods: ['GET'])]
+    public function getPositionPlans(): JsonResponse
+    {
+        return $this->json($this->rotationalGrid->getAllPlans());
     }
 
     #[Route('/trades', name: 'api_trades', methods: ['GET'])]
@@ -105,6 +113,13 @@ class ApiController extends AbstractController
     public function getBalance(): JsonResponse
     {
         return $this->json($this->bybitService->getBalance());
+    }
+
+    #[Route('/account-info', name: 'api_account_info', methods: ['GET'])]
+    public function getAccountInfo(): JsonResponse
+    {
+        $info = $this->bybitService->getAccountInfo();
+        return $this->json($info ?? ['marginMode' => null, 'unifiedMarginStatus' => null]);
     }
 
     #[Route('/market-data/{symbol}', name: 'api_market_data', methods: ['GET'])]
@@ -305,6 +320,79 @@ class ApiController extends AbstractController
         }
         $dataFreshnessSec = (float)($freshnessCheck['age_sec'] ?? 0.0);
 
+        // ── Grid rotation (rotational_grid positions) ─────────────────────
+        $positionMode     = $trading['position_mode'] ?? 'single';
+        $rotationalSymbols = [];
+        if ($positionMode === 'rotational_grid') {
+            $maxLayers     = max(1, (int)($trading['max_layers'] ?? 3));
+            $layerSizeUsdt = max(10.0, (float)($trading['layer_size_usdt'] ?? 50));
+            $gridStepPct   = max(1.0, min(20.0, (float)($trading['grid_step_pct'] ?? 5)));
+            $rotInTrend    = (bool)($trading['rotation_allowed_in_trend'] ?? false);
+            $rotInChop     = (bool)($trading['rotation_allowed_in_chop'] ?? true);
+
+            foreach ($positions as $p) {
+                $symbol = $p['symbol'] ?? '';
+                $side   = $p['side'] ?? '';
+                if ($symbol === '' || $this->positionLockService->isLocked($symbol, $side)) {
+                    continue;
+                }
+                $plan = $this->rotationalGrid->getPlan($symbol, $side);
+                if ($plan === null) {
+                    $entryPrice = (float)($p['entryPrice'] ?? $p['markPrice'] ?? 0);
+                    if ($entryPrice > 0) {
+                        $plan = $this->rotationalGrid->createPlan($symbol, $side, $entryPrice, $maxLayers, $layerSizeUsdt, $gridStepPct);
+                    }
+                }
+                if ($plan === null) {
+                    continue;
+                }
+                $rotationalSymbols["{$symbol}|{$side}"] = true;
+
+                $regime   = $strategySignalsBySymbol[$symbol]['regime'] ?? [];
+                $chopScore = (float)($regime['chop_score'] ?? 0.5);
+                $chopTh    = (float)($regime['chop_threshold'] ?? 0.65);
+                $trend     = $regime['trend'] ?? 'unknown';
+                $isChop    = $chopScore >= $chopTh;
+                $isTrend   = in_array($trend, ['up', 'down'], true);
+                $rotationAllowed = ($isChop && $rotInChop) || ($isTrend && $rotInTrend) || (!$isChop && !$isTrend);
+
+                $markPrice = (float)($p['markPrice'] ?? $p['entryPrice'] ?? 0);
+                if ($markPrice <= 0) {
+                    continue;
+                }
+
+                if ($rotationAllowed && $this->rotationalGrid->shouldAddLayer($plan, $markPrice)) {
+                    $lev       = max(1, (int)($p['leverage'] ?? 1));
+                    $bybitSide = strtoupper($side) === 'BUY' ? 'BUY' : 'SELL';
+                    $result    = $this->bybitService->placeOrder($symbol, $bybitSide, $layerSizeUsdt, $lev);
+                    if ($result['ok'] ?? false) {
+                        $nextLevel = $this->rotationalGrid->getNextAddLevel($plan, $markPrice);
+                        $this->rotationalGrid->addLayer($plan, $nextLevel ?? $markPrice, $markPrice);
+                        $this->botHistory->log('rotational_add_layer', [
+                            'symbol' => $symbol, 'side' => $side, 'level' => $nextLevel,
+                            'ok' => true, 'layers' => count($plan['active_layers'] ?? []),
+                        ]);
+                    }
+                    continue;
+                }
+
+                if ($this->rotationalGrid->shouldUnloadLayer($plan, $markPrice)) {
+                    $size     = (float)($p['size'] ?? 0);
+                    $fraction = $this->rotationalGrid->getOneLayerFraction($plan, $size, $markPrice);
+                    if ($fraction > 0) {
+                        $result = $this->bybitService->closePositionMarket($symbol, $side, $fraction);
+                        if ($result['ok'] ?? false) {
+                            $this->rotationalGrid->removeLowestLayer($plan);
+                            $this->botHistory->log('rotational_unload_layer', [
+                                'symbol' => $symbol, 'side' => $side, 'fraction' => $fraction,
+                                'ok' => true, 'layers' => count($plan['active_layers'] ?? []),
+                            ]);
+                        }
+                    }
+                }
+            }
+        }
+
         // ── LLM: manage open positions ────────────────────────────────
         $manageDecisions = $this->chatGPTService->manageOpenPositions(
             $this->bybitService, $positions, $dataFreshnessSec, $strategySignalsBySymbol
@@ -392,6 +480,15 @@ class ApiController extends AbstractController
                 $managed[] = array_merge($traceFields, [
                     'symbol' => $symbol, 'side' => $side, 'action' => $action,
                     'ok' => false, 'skipped' => true, 'skip_reason' => 'cooldown',
+                ]);
+                continue;
+            }
+
+            // ── Rotational grid: LLM не управляет, grid сам добор/разгрузка ──
+            if (isset($rotationalSymbols["{$symbol}|{$side}"])) {
+                $managed[] = array_merge($traceFields, [
+                    'symbol' => $symbol, 'side' => $side, 'action' => $action,
+                    'ok' => true, 'skipped' => true, 'skip_reason' => 'rotational_grid',
                 ]);
                 continue;
             }
@@ -666,6 +763,9 @@ class ApiController extends AbstractController
         }
 
         $result = $this->bybitService->closePositionMarket($symbol, $side, 1.0);
+        if ($result['ok'] ?? false) {
+            $this->rotationalGrid->removePlan($symbol, $side);
+        }
         $this->botHistory->log('manual_close_full', [
             'symbol' => $symbol, 'side' => $side, 'action' => 'MANUAL_CLOSE_FULL',
             'ok' => $result['ok'] ?? false, 'error' => $result['error'] ?? null,
@@ -741,6 +841,9 @@ class ApiController extends AbstractController
 
         if ($actType === 'CLOSE_FULL') {
             $result           = $this->bybitService->closePositionMarket($symbol, $side, 1.0);
+            if ($result['ok'] ?? false) {
+                $this->rotationalGrid->removePlan($symbol, $side);
+            }
             $eventType        = 'close_full';
             $realizedEstimate = $action['pnlAtDecision'] ?? null;
         } elseif ($actType === 'AVERAGE_IN_ONCE') {

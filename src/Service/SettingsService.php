@@ -53,6 +53,17 @@ class SettingsService
                 'min_position_usdt'        => 10.0,   // мин. маржа (залог) USDT
                 'min_leverage'             => 1,
                 'max_leverage'             => 5,
+                'required_margin_mode'     => 'auto', // auto|cross|isolated — guard в placeOrder
+                // ── Rotational Grid ──────────────────────────────────────
+                'position_mode'            => 'single', // single | rotational_grid
+                'max_layers'               => 3,
+                'layer_size_usdt'          => 50.0,
+                'grid_step_pct'            => 5.0,
+                'grid_reentry_enabled'     => true,
+                'unload_on_reclaim_level'  => true,
+                'base_layer_persistent'    => true,
+                'rotation_allowed_in_chop' => true,
+                'rotation_allowed_in_trend'=> false,
                 'aggressiveness'           => 'balanced',
                 'max_managed_positions'    => 10,
                 'auto_open_min_positions'  => 5,
