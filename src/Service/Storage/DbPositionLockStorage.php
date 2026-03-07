@@ -17,9 +17,14 @@ class DbPositionLockStorage implements PositionLockStorageInterface
     ) {
     }
 
+    private function getProfileId(): ?int
+    {
+        return $this->profileContext->getActiveProfileId();
+    }
+
     private function getProfile(): ?TradingProfile
     {
-        $profileId = $this->profileContext->getActiveProfileId();
+        $profileId = $this->getProfileId();
         if ($profileId === null) {
             return null;
         }
@@ -33,13 +38,13 @@ class DbPositionLockStorage implements PositionLockStorageInterface
 
     public function isLocked(string $symbol, string $side): bool
     {
-        $profileId = $this->getProfileId();
-        if ($profileId === null) {
+        $profile = $this->getProfile();
+        if ($profile === null) {
             return false;
         }
 
         $lock = $this->em->getRepository(PositionLock::class)->findOneBy([
-            'tradingProfile' => $profileId,
+            'tradingProfile' => $profile,
             'symbol' => strtoupper($symbol),
             'side' => ucfirst(strtolower($side)),
         ]);
@@ -49,14 +54,9 @@ class DbPositionLockStorage implements PositionLockStorageInterface
 
     public function setLock(string $symbol, string $side, bool $locked): void
     {
-        $profileId = $this->getProfileId();
-        if ($profileId === null) {
-            throw new \RuntimeException('Cannot set position lock: no active profile in context.');
-        }
-
-        $profile = $this->em->getRepository(TradingProfile::class)->find($profileId);
+        $profile = $this->getProfile();
         if ($profile === null) {
-            throw new \RuntimeException('Trading profile not found: ' . $profileId);
+            throw new \RuntimeException('Cannot set position lock: no active profile in context.');
         }
 
         $symbolNorm = strtoupper($symbol);
@@ -89,13 +89,13 @@ class DbPositionLockStorage implements PositionLockStorageInterface
 
     public function getLocks(): array
     {
-        $profileId = $this->getProfileId();
-        if ($profileId === null) {
+        $profile = $this->getProfile();
+        if ($profile === null) {
             return [];
         }
 
         $locks = $this->em->getRepository(PositionLock::class)->findBy(
-            ['tradingProfile' => $profileId, 'locked' => true],
+            ['tradingProfile' => $profile, 'locked' => true],
             ['symbol' => 'ASC', 'side' => 'ASC']
         );
 

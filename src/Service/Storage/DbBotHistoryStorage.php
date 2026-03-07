@@ -53,7 +53,7 @@ class DbBotHistoryStorage implements BotHistoryStorageInterface
         $old = $this->em->getRepository(BotHistoryEvent::class)->createQueryBuilder('e')
             ->where('e.tradingProfile = :profile')
             ->andWhere('e.createdAt < :cutoff')
-            ->setParameter('profile', $profileId)
+            ->setParameter('profile', $profile)
             ->setParameter('cutoff', $cutoff)
             ->orderBy('e.createdAt', 'ASC')
             ->getQuery()
