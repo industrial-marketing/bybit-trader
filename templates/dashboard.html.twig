@@ -327,7 +327,7 @@
                 <button type="button" class="btn-secondary" id="positions-debug-close">Close</button>
             </div>
         </div>
-        <div class="table-container">
+        <div class="table-container positions-orders-container">
             <table id="positions-table">
                 <thead>
                     <tr>
@@ -337,7 +337,7 @@
                         <th class="num">Entry USDT</th>
                         <th class="num">Margin</th>
                         <th class="num">Lev</th>
-                        <th class="num">Entry Price</th>
+                        <th class="num" title="Средняя цена входа от Bybit (обновляется после усреднения)">Entry Price</th>
                         <th class="num">Current</th>
                         <th class="num">Liq.</th>
                         <th class="num">PnL</th>
@@ -410,30 +410,6 @@
                 </thead>
                 <tbody>
                     <tr><td colspan="9" class="loading">Loading...</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    {# ── Open orders ───────────────────────────────────────────── #}
-    <div class="section" data-page="bot">
-        <h2><i class="bi bi-card-checklist"></i> Open Orders</h2>
-        <div class="table-container">
-            <table id="orders-table">
-                <thead>
-                    <tr>
-                        <th>Символ</th>
-                        <th>Сторона</th>
-                        <th>Тип</th>
-                        <th class="num">Цена</th>
-                        <th class="num">Количество</th>
-                        <th class="num">Исполнено</th>
-                        <th>Статус</th>
-                        <th>Создан</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr><td colspan="8" class="loading">Loading...</td></tr>
                 </tbody>
             </table>
         </div>

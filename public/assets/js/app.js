@@ -126,10 +126,10 @@ $(document).ready(function() {
                 if (typeof window.showToast === 'function') {
                     window.showToast(newLocked ? 'Position locked' : 'Position unlocked', 'success');
                 }
-                loadPositions();
+                loadPositionsAndOrders();
             },
             error: function(xhr) {
-                loadPositions();
+                loadPositionsAndOrders();
                 const msg = xhr.responseJSON?.error || xhr.statusText || 'Error';
                 if (typeof window.showToast === 'function') {
                     window.showToast('Lock: ' + msg, 'error');
@@ -159,7 +159,7 @@ $(document).ready(function() {
             data: JSON.stringify({ symbol: symbol, side: side }),
             success: function(res) {
                 if (res && res.ok !== false) {
-                    loadPositions();
+                    loadPositionsAndOrders();
                     loadBalance();
                 } else {
                     alert(res.error || 'Error closing position');
@@ -263,9 +263,8 @@ var miniEquityChart = null;
 function loadDashboard() {
     loadPeriodPnl();
     loadMiniEquityChart();
-    loadPositions();
+    loadPositionsAndOrders();
     loadPositionPlans();
-    loadOrders();
     loadTrades();
     loadStatistics();
     loadTopMarkets();
@@ -353,139 +352,136 @@ function renderWhyBadge(decision) {
     </span>`;
 }
 
-function loadPositions() {
-    $.get('/api/positions', { _t: Date.now() })  // cache-bust
-        .done(function(data) {
-            if (data.length === 0) {
-                $('#positions-table tbody').html('<tr><td colspan="14" class="loading">No open positions</td></tr>');
-                $('#stat-margin-in-positions, #stat-margin-used, #stat-exposure').text('0 USDT');
-                $('#stat-open-positions-count').text('0');
-                $('#stat-margin-card').hide();
-                return;
-            }
-
-            let totalMargin = 0;
-            let totalExposure = 0;
-            let html = '';
-            data.forEach(function(position) {
-                const pnl = parseFloat(position.unrealizedPnl || 0);
-                const pnlClass = pnl >= 0 ? 'profit' : 'loss';
-                const pnlSign = pnl >= 0 ? '+' : '';
-                const locked = position.locked === true;
-                const botStatus = locked ? 'Locked' : 'Allowed';
-                const liq = position.liquidationPrice != null ? parseFloat(position.liquidationPrice) : null;
-                const liqText = liq && !isNaN(liq) && liq !== 0 ? formatPrice(liq) : '-';
-                const entryPrice = parseFloat(position.entryPrice || 0);
-                const size = parseFloat(position.size || 0);
-                const leverage = position.leverage != null ? parseFloat(position.leverage) : 0;
-                const entryUsdt = entryPrice && size ? (entryPrice * size) : 0;
-                const margin = entryUsdt && leverage > 0 ? (entryUsdt / leverage) : 0;
-                totalMargin += margin;
-                totalExposure += entryUsdt;
-                const levText = leverage > 0 ? String(leverage) + 'x' : '-';
-                const sideRaw = (position.side || '').toUpperCase();
-                const sideText = sideRaw === 'BUY' ? 'Long' : sideRaw === 'SELL' ? 'Short' : (position.side || '');
-                const sideBadge = sideRaw === 'BUY'
-                    ? `<span class="side-long">↑ Long</span>`
-                    : sideRaw === 'SELL'
-                        ? `<span class="side-short">↓ Short</span>`
-                        : sideText;
-                const whyHtml = renderWhyBadge(position.lastDecision || null);
-                const lockIcon = locked ? 'bi-lock-fill' : 'bi-unlock';
-                const lockLabel = locked ? 'Unlock' : 'Lock';
-                const botStatusHtml = locked
-                    ? `<span class="lock-badge"><i class="bi bi-lock-fill"></i> LOCKED</span>`
-                    : `<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Allowed</span>`;
-
-                html += `
-                    <tr data-symbol="${position.symbol}" data-side="${position.side}" data-locked="${locked ? '1' : '0'}">
-                        <td><strong>${position.symbol}</strong></td>
-                        <td>${sideBadge}</td>
-                        <td class="num">${position.size}</td>
-                        <td class="num">${entryUsdt ? entryUsdt.toFixed(2) : '-'}</td>
-                        <td class="num">${margin ? margin.toFixed(2) : '-'}</td>
-                        <td class="num">${levText}</td>
-                        <td class="num">${entryPrice ? formatPrice(entryPrice) : '-'}</td>
-                        <td class="num">${formatPrice(position.markPrice)}</td>
-                        <td class="num">${liqText}</td>
-                        <td class="num ${pnlClass}">${pnlSign}${pnl.toFixed(2)}</td>
-                        <td>${position.openedAt}</td>
-                        <td class="why-cell">${whyHtml}</td>
-                        <td>${botStatusHtml}</td>
-                        <td style="white-space:nowrap;">
-                            <button type="button" class="btn-small btn-icon-lock btn-pos-lock" title="${lockLabel}">
-                                <i class="bi ${lockIcon}"></i>
-                            </button>
-                            <button type="button" class="btn-small btn-icon-danger btn-pos-close" title="Close position">
-                                <i class="bi bi-x-circle"></i>
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            });
-            $('#positions-table tbody').html(html);
-            $('#stat-margin-in-positions').text(totalMargin.toFixed(2) + ' USDT');
-            $('#stat-margin-used').text(totalMargin.toFixed(2) + ' USDT');
-            $('#stat-exposure').text(totalExposure.toFixed(2) + ' USDT');
-            $('#stat-open-positions-count').text(String(data.length));
-            $('#stat-margin-card').toggle(totalMargin > 0);
-            addPositionSymbolsToSelector(data);
-            updateBotChartSymbolSelector(data);
-        })
-        .fail(function() {
-            $('#positions-table tbody').html('<tr><td colspan="14" class="loading">Error loading data</td></tr>');
-            $('#stat-margin-in-positions, #stat-margin-used, #stat-exposure').text('-');
-            $('#stat-open-positions-count').text('-');
-            $('#stat-margin-card').show();
+function loadPositionsAndOrders() {
+    $.when(
+        $.get('/api/positions', { _t: Date.now() }),
+        $.get('/api/orders')
+    ).done(function(positionsResp, ordersResp) {
+        const positions = positionsResp[0] || [];
+        const orders = ordersResp[0] || [];
+        const ordersBySymbol = {};
+        orders.forEach(function(o) {
+            const sym = o.symbol || '';
+            if (!ordersBySymbol[sym]) ordersBySymbol[sym] = [];
+            ordersBySymbol[sym].push(o);
         });
-}
 
-function loadOrders() {
-    $.get('/api/orders')
-        .done(function(data) {
-            if (data.length === 0) {
-                $('#orders-table tbody').html('<tr><td colspan="8" class="loading">No open orders</td></tr>');
-                return;
+        if (positions.length === 0) {
+            $('#positions-table tbody').html('<tr><td colspan="14" class="loading">No open positions</td></tr>');
+            $('#stat-margin-in-positions, #stat-margin-used, #stat-exposure').text('0 USDT');
+            $('#stat-open-positions-count').text('0');
+            $('#stat-margin-card').hide();
+            addPositionSymbolsToSelector([]);
+            updateBotChartSymbolSelector([]);
+            return;
+        }
+
+        let totalMargin = 0;
+        let totalExposure = 0;
+        let html = '';
+        positions.forEach(function(position) {
+            const pnl = parseFloat(position.unrealizedPnl || 0);
+            const pnlClass = pnl >= 0 ? 'profit' : 'loss';
+            const pnlSign = pnl >= 0 ? '+' : '';
+            const locked = position.locked === true;
+            const botStatus = locked ? 'Locked' : 'Allowed';
+            const liq = position.liquidationPrice != null ? parseFloat(position.liquidationPrice) : null;
+            const liqText = liq && !isNaN(liq) && liq !== 0 ? formatPrice(liq) : '-';
+            const entryPrice = parseFloat(position.entryPrice || 0);
+            const size = parseFloat(position.size || 0);
+            const leverage = position.leverage != null ? parseFloat(position.leverage) : 0;
+            const entryUsdt = entryPrice && size ? (entryPrice * size) : 0;
+            const margin = entryUsdt && leverage > 0 ? (entryUsdt / leverage) : 0;
+            totalMargin += margin;
+            totalExposure += entryUsdt;
+            const levText = leverage > 0 ? String(leverage) + 'x' : '-';
+            const sideRaw = (position.side || '').toUpperCase();
+            const sideText = sideRaw === 'BUY' ? 'Long' : sideRaw === 'SELL' ? 'Short' : (position.side || '');
+            const sideBadge = sideRaw === 'BUY'
+                ? `<span class="side-long">↑ Long</span>`
+                : sideRaw === 'SELL'
+                    ? `<span class="side-short">↓ Short</span>`
+                    : sideText;
+            const whyHtml = renderWhyBadge(position.lastDecision || null);
+            const lockIcon = locked ? 'bi-lock-fill' : 'bi-unlock';
+            const lockLabel = locked ? 'Unlock' : 'Lock';
+            const botStatusHtml = locked
+                ? `<span class="lock-badge"><i class="bi bi-lock-fill"></i> LOCKED</span>`
+                : `<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Allowed</span>`;
+
+            html += `
+                <tr data-symbol="${position.symbol}" data-side="${position.side}" data-locked="${locked ? '1' : '0'}" class="position-row">
+                    <td><strong>${position.symbol}</strong></td>
+                    <td>${sideBadge}</td>
+                    <td class="num">${position.size}</td>
+                    <td class="num">${entryUsdt ? entryUsdt.toFixed(2) : '-'}</td>
+                    <td class="num">${margin ? margin.toFixed(2) : '-'}</td>
+                    <td class="num">${levText}</td>
+                    <td class="num">${entryPrice ? formatPrice(entryPrice) : '-'}</td>
+                    <td class="num">${formatPrice(position.markPrice)}</td>
+                    <td class="num">${liqText}</td>
+                    <td class="num ${pnlClass}">${pnlSign}${pnl.toFixed(2)}</td>
+                    <td>${position.openedAt}</td>
+                    <td class="why-cell">${whyHtml}</td>
+                    <td>${botStatusHtml}</td>
+                    <td style="white-space:nowrap;">
+                        <button type="button" class="btn-small btn-icon-lock btn-pos-lock" title="${lockLabel}">
+                            <i class="bi ${lockIcon}"></i>
+                        </button>
+                        <button type="button" class="btn-small btn-icon-danger btn-pos-close" title="Close position">
+                            <i class="bi bi-x-circle"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+
+            var posOrders = ordersBySymbol[position.symbol] || [];
+            if (posOrders.length > 0) {
+                var ordHtml = '<tr class="orders-sub-row"><td colspan="14" class="orders-cell"><div class="orders-inline"><span class="orders-label"><i class="bi bi-card-list"></i> Orders:</span>';
+                posOrders.forEach(function(ord) {
+                    var rawPrice = parseFloat(ord.price || 0);
+                    var rawTrig = ord.triggerPrice != null ? parseFloat(ord.triggerPrice) : null;
+                    var priceTxt = (rawPrice && !isNaN(rawPrice) && rawPrice !== 0) ? formatPrice(rawPrice) : ((rawTrig && !isNaN(rawTrig)) ? formatPrice(rawTrig) : '-');
+                    var sideTxt = (ord.side || '').toUpperCase() === 'BUY' ? 'Long' : 'Short';
+                    var sideCl = sideTxt === 'Long' ? 'profit' : 'loss';
+                    ordHtml += ` <span class="order-chip ${sideCl}">${ord.orderType} @ ${priceTxt} · ${parseFloat(ord.qty || 0).toFixed(4)} (${ord.status})</span>`;
+                });
+                ordHtml += '</div></td></tr>';
+                html += ordHtml;
+                delete ordersBySymbol[position.symbol];
             }
-
-            let html = '';
-            data.forEach(function(order) {
-                const statusClass = order.status === 'Filled' ? 'profit' : order.status === 'Cancelled' ? 'loss' : '';
-                const executedPercent = parseFloat(order.qty) > 0 
-                    ? ((parseFloat(order.cumExecQty) / parseFloat(order.qty)) * 100).toFixed(1) 
-                    : '0';
-
-                const rawPrice = parseFloat(order.price || 0);
-                const rawTrigger = order.triggerPrice != null ? parseFloat(order.triggerPrice) : null;
-                let priceText = '-';
-                if (rawPrice && !isNaN(rawPrice) && rawPrice !== 0) {
-                    priceText = formatPrice(rawPrice);
-                } else if (rawTrigger && !isNaN(rawTrigger) && rawTrigger !== 0) {
-                    priceText = formatPrice(rawTrigger);
-                }
-
-                const sideRaw = (order.side || '').toUpperCase();
-                const sideText = sideRaw === 'BUY' ? 'Long' : sideRaw === 'SELL' ? 'Short' : (order.side || '');
-                const sideClassSide = sideRaw === 'BUY' ? 'profit' : sideRaw === 'SELL' ? 'loss' : '';
-                
-                html += `
-                    <tr>
-                        <td><strong>${order.symbol}</strong></td>
-                        <td class="${sideClassSide}">${sideText}</td>
-                        <td>${order.orderType}</td>
-                        <td>${priceText}</td>
-                        <td>${parseFloat(order.qty).toFixed(4)}</td>
-                        <td>${parseFloat(order.cumExecQty).toFixed(4)} (${executedPercent}%)</td>
-                        <td class="${statusClass}">${order.status}</td>
-                        <td>${order.createdTime}</td>
-                    </tr>
-                `;
-            });
-            $('#orders-table tbody').html(html);
-        })
-        .fail(function() {
-            $('#orders-table tbody').html('<tr><td colspan="8" class="loading">Error loading data</td></tr>');
         });
+
+        var orphanSymbols = Object.keys(ordersBySymbol);
+        if (orphanSymbols.length > 0) {
+            var orphanHtml = '<tr class="orders-sub-row"><td colspan="14" class="orders-cell"><div class="orders-inline"><span class="orders-label"><i class="bi bi-card-list"></i> Other orders:</span>';
+            orphanSymbols.forEach(function(sym) {
+                (ordersBySymbol[sym] || []).forEach(function(ord) {
+                    var rawPrice = parseFloat(ord.price || 0);
+                    var priceTxt = rawPrice && !isNaN(rawPrice) ? formatPrice(rawPrice) : '-';
+                    var sideTxt = (ord.side || '').toUpperCase() === 'BUY' ? 'Long' : 'Short';
+                    var sideCl = sideTxt === 'Long' ? 'profit' : 'loss';
+                    orphanHtml += ' <span class="order-chip ' + sideCl + '">' + sym + ' ' + ord.orderType + ' @ ' + priceTxt + '</span>';
+                });
+            });
+            orphanHtml += '</div></td></tr>';
+            html += orphanHtml;
+        }
+
+        $('#positions-table tbody').html(html);
+        $('#stat-margin-in-positions').text(totalMargin.toFixed(2) + ' USDT');
+        $('#stat-margin-used').text(totalMargin.toFixed(2) + ' USDT');
+        $('#stat-exposure').text(totalExposure.toFixed(2) + ' USDT');
+        $('#stat-open-positions-count').text(String(positions.length));
+        $('#stat-margin-card').toggle(totalMargin > 0);
+        addPositionSymbolsToSelector(positions);
+        updateBotChartSymbolSelector(positions);
+    }).fail(function() {
+        $('#positions-table tbody').html('<tr><td colspan="14" class="loading">Error loading data</td></tr>');
+        $('#stat-margin-in-positions, #stat-margin-used, #stat-exposure').text('-');
+        $('#stat-open-positions-count').text('-');
+        $('#stat-margin-card').show();
+    });
 }
 
 function formatDuration(ms) {
@@ -1049,9 +1045,9 @@ function submitOpenOrder() {
                 } else {
                     $('#modal-message').text('Order sent. Check positions.').addClass('success');
                 }
-                loadPositions();
+                loadPositionsAndOrders();
                 loadBalance();
-                setTimeout(function() { loadPositions(); loadBalance(); }, 1500);
+                setTimeout(function() { loadPositionsAndOrders(); loadBalance(); }, 1500);
                 setTimeout(function() {
                     $('#open-order-modal').hide();
                 }, 800);
@@ -1366,7 +1362,7 @@ function resolvePending(id, confirm) {
         $bsm.removeClass('error success').addClass(data.ok || !confirm ? 'success' : 'error').text(msg).show();
         setTimeout(function() { $bsm.fadeOut(); }, 4000);
         loadRiskStatus();
-        loadPositions();
+        loadPositionsAndOrders();
     })
     .fail(function() {
         $('#bot-status-message').removeClass('success').addClass('error').text('Ошибка подтверждения').show();

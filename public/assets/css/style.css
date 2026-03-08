@@ -249,9 +249,12 @@ a { color: inherit; text-decoration: none; }
 }
 
 .footer-icon {
-    height: 36px;
+    height: 48px;
     width: auto;
-    object-fit: contain;
+    /* White pill behind icon so colours stay correct */
+    background: rgba(255,255,255,0.95);
+    border-radius: 8px;
+    padding: 4px;
 }
 
 .footer-text {
@@ -521,6 +524,36 @@ h3 {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
 }
+
+.orders-sub-row td {
+    padding: 8px 12px !important;
+    background: rgba(0,0,0,0.2);
+    border-top: none;
+    vertical-align: top;
+}
+
+.orders-inline {
+    font-size: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.orders-label {
+    color: var(--muted);
+    margin-right: 4px;
+}
+
+.order-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+}
+
+.order-chip.profit { background: rgba(16,185,129,0.2); color: var(--positive); }
+.order-chip.loss { background: rgba(239,68,68,0.2); color: var(--negative); }
 
 table {
     width: 100%;
