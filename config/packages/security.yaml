@@ -16,6 +16,8 @@ security:
         main:
             pattern: ^/
             provider: app_user_provider
+            custom_authenticators:
+                - App\Security\GoogleAuthenticator
             form_login:
                 login_path: login
                 check_path: login
@@ -29,6 +31,7 @@ security:
     access_control:
         - { path: ^/login, roles: PUBLIC_ACCESS }
         - { path: ^/register, roles: PUBLIC_ACCESS }
+        - { path: ^/connect/, roles: PUBLIC_ACCESS }
         - { path: ^/$, roles: PUBLIC_ACCESS }
         - { path: ^/features, roles: PUBLIC_ACCESS }
         - { path: ^/how-it-works, roles: PUBLIC_ACCESS }

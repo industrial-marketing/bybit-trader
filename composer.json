@@ -10,6 +10,8 @@
         "doctrine/doctrine-bundle": "^2.18",
         "doctrine/doctrine-migrations-bundle": "^3.7",
         "doctrine/orm": "^3.6",
+        "knpuniversity/oauth2-client-bundle": "^2.20",
+        "league/oauth2-google": "^4.1",
         "symfony/console": "6.4.*",
         "symfony/dotenv": "6.4.*",
         "symfony/flex": "^2",
