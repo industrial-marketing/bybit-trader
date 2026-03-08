@@ -8,16 +8,15 @@ use App\Service\Settings\DatabaseSettingsSource;
 use App\Service\Settings\FileSettingsSource;
 use App\Service\Settings\ProfileContext;
 use App\Service\Settings\SettingsSourceInterface;
+use Symfony\Bundle\SecurityBundle\Security;
 
 /**
  * Управляет настройками приложения.
  *
- * Источник: FileSettingsSource (var/settings.json) при ProfileContext.useFileSettings(),
- * иначе DatabaseSettingsSource (MySQL по активному профилю).
+ * Источник: для залогиненных пользователей — всегда DatabaseSettingsSource (ключи из профиля).
+ * Для анонимных — FileSettingsSource при useFileSettings(), иначе DatabaseSettingsSource.
  *
- * Приоритет API-ключей (от высшего к низшему):
- *   1. Переменные окружения (.env.local): BYBIT_API_KEY, BYBIT_API_SECRET, CHATGPT_API_KEY, DEEPSEEK_API_KEY
- *   2. Настройки из выбранного источника (файл или БД)
+ * Важно: залогиненные пользователи никогда не получают ключи из .env — только из своего профиля в БД.
  */
 class SettingsService
 {
@@ -25,11 +24,16 @@ class SettingsService
         private readonly ProfileContext $profileContext,
         private readonly FileSettingsSource $fileSource,
         private readonly DatabaseSettingsSource $databaseSource,
+        private readonly Security $security,
     ) {
     }
 
     private function getSource(): SettingsSourceInterface
     {
+        // Logged-in users always use DB source (their profile keys); never .env
+        if ($this->security->getUser() !== null) {
+            return $this->databaseSource;
+        }
         return $this->profileContext->useFileSettings()
             ? $this->fileSource
             : $this->databaseSource;

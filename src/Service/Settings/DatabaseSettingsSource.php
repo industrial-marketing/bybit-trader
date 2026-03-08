@@ -65,7 +65,7 @@ class DatabaseSettingsSource implements SettingsSourceInterface
                 'base_url'   => $ex->getBaseUrl() ?? $bybit['base_url'],
             ];
         }
-        $this->applyEnvOverridesToSection($bybit, 'bybit');
+        // Do NOT override with env — each profile has its own Bybit keys; env would force all users to same account
         $bybit = array_merge($defaults['bybit'], $bybit);
 
         $chatgpt = $defaults['chatgpt'];
@@ -78,7 +78,6 @@ class DatabaseSettingsSource implements SettingsSourceInterface
                     'enabled' => $ac->isEnabled(),
                     'timeout' => $ac->getTimeout() ?? 60,
                 ];
-                $this->applyEnvOverridesToSection($chatgpt, 'chatgpt');
                 $chatgpt = array_merge($defaults['chatgpt'], $chatgpt);
             }
             if ($ac->getProvider() === AiProviderConfig::PROVIDER_DEEPSEEK) {
@@ -88,7 +87,6 @@ class DatabaseSettingsSource implements SettingsSourceInterface
                     'enabled' => $ac->isEnabled(),
                     'timeout' => $ac->getTimeout() ?? 120,
                 ];
-                $this->applyEnvOverridesToSection($deepseek, 'deepseek');
                 $deepseek = array_merge($defaults['deepseek'], $deepseek);
             }
         }

@@ -4,17 +4,22 @@ declare(strict_types=1);
 
 namespace App\Service\Settings;
 
+use Symfony\Bundle\SecurityBundle\Security;
+
 /**
  * Settings source: var/settings.json.
  * Applies env overrides for API keys (BYBIT_*, CHATGPT_*, DEEPSEEK_*).
+ * For logged-in users, Bybit env overrides are NOT applied — each user must use their own profile keys.
  */
 class FileSettingsSource implements SettingsSourceInterface
 {
     private array $settings = [];
     private string $settingsPath;
 
-    public function __construct(string $projectDir)
-    {
+    public function __construct(
+        string $projectDir,
+        private readonly ?Security $security = null,
+    ) {
         $this->settingsPath = $projectDir . '/var/settings.json';
         $this->loadSettings();
     }
@@ -125,11 +130,15 @@ class FileSettingsSource implements SettingsSourceInterface
         $envChatGpt     = $_ENV['CHATGPT_API_KEY']  ?? $_SERVER['CHATGPT_API_KEY']  ?? '';
         $envDeepseek    = $_ENV['DEEPSEEK_API_KEY'] ?? $_SERVER['DEEPSEEK_API_KEY'] ?? '';
 
-        if ($envBybitKey !== '') {
-            $this->settings['bybit']['api_key'] = $envBybitKey;
-        }
-        if ($envBybitSecret !== '') {
-            $this->settings['bybit']['api_secret'] = $envBybitSecret;
+        // Never apply Bybit env overrides for logged-in users — each user must use their own profile keys
+        $user = $this->security?->getUser();
+        if ($user === null) {
+            if ($envBybitKey !== '') {
+                $this->settings['bybit']['api_key'] = $envBybitKey;
+            }
+            if ($envBybitSecret !== '') {
+                $this->settings['bybit']['api_secret'] = $envBybitSecret;
+            }
         }
         if ($envChatGpt !== '') {
             $this->settings['chatgpt']['api_key'] = $envChatGpt;
