@@ -16,6 +16,7 @@ security:
         main:
             pattern: ^/
             provider: app_user_provider
+            entry_point: form_login
             custom_authenticators:
                 - App\Security\GoogleAuthenticator
             form_login:
