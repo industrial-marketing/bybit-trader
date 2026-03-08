@@ -315,10 +315,6 @@ class RotationalGridLimitOrderManager
 
     private function savePlan(array $plan): void
     {
-        $this->grid->getPlan('', ''); // trigger storage load - we need to use storage
-        // RotationalGridService saves via storage - we need access. Use reflection or add savePlan to grid.
-        // Actually RotationalGridService has private savePlan that calls storage. We need the grid to save.
-        // The grid doesn't expose savePlan. We could add a method updatePlan(plan) that just saves. Let me add it.
         $this->grid->updatePlan($plan);
     }
 }
