@@ -33,7 +33,8 @@ class ProfileContextRequestSubscriber implements EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         return [
-            KernelEvents::REQUEST => ['onKernelRequest', 32],
+            // Run after SessionListener (-128) so session is available for API requests
+            KernelEvents::REQUEST => ['onKernelRequest', -129],
         ];
     }
 
@@ -45,16 +46,14 @@ class ProfileContextRequestSubscriber implements EventSubscriberInterface
 
         $request = $event->getRequest();
         $session = $request->hasSession() ? $request->getSession() : null;
-        if ($session === null) {
-            return;
-        }
 
         /** @var User|null $user */
         $user = $this->security->getUser();
 
-        $profileId = $session->get(self::SESSION_KEY);
+        // Try session first (when available)
+        $profileId = $session?->get(self::SESSION_KEY);
 
-        if ($profileId !== null && $profileId !== '' && (int) $profileId > 0) {
+        if ($profileId !== null && $profileId !== '' && (int) $profileId > 0 && $session !== null) {
             $profile = $this->em->getRepository(TradingProfile::class)->find((int) $profileId);
             // Only use session profile if it belongs to the current user
             if ($profile !== null && $user !== null && $profile->getUser()->getId() === $user->getId()) {
@@ -87,7 +86,9 @@ class ProfileContextRequestSubscriber implements EventSubscriberInterface
         }
 
         if ($defaultProfile !== null) {
-            $session->set(self::SESSION_KEY, $defaultProfile->getId());
+            if ($session !== null) {
+                $session->set(self::SESSION_KEY, $defaultProfile->getId());
+            }
             $this->profileContext->setActiveProfileId($defaultProfile->getId());
         }
     }
