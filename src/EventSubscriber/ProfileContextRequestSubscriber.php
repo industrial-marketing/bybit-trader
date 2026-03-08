@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\EventSubscriber;
 
+use App\Entity\BotSettings;
+use App\Entity\ExchangeIntegration;
 use App\Entity\TradingProfile;
 use App\Entity\User;
 use App\Service\Settings\ProfileContext;
@@ -73,9 +75,48 @@ class ProfileContextRequestSubscriber implements EventSubscriberInterface
             ['isDefault' => 'DESC', 'id' => 'ASC']
         );
 
+        if ($defaultProfile === null) {
+            $defaultProfile = $this->em->getRepository(TradingProfile::class)->findOneBy(
+                ['user' => $user],
+                ['id' => 'ASC']
+            );
+        }
+
+        if ($defaultProfile === null) {
+            $defaultProfile = $this->createDefaultProfile($user);
+        }
+
         if ($defaultProfile !== null) {
             $session->set(self::SESSION_KEY, $defaultProfile->getId());
             $this->profileContext->setActiveProfileId($defaultProfile->getId());
         }
+    }
+
+    private function createDefaultProfile(User $user): TradingProfile
+    {
+        $profile = new TradingProfile();
+        $profile->setUser($user);
+        $profile->setName('My Profile');
+        $profile->setEnvironment('testnet');
+        $profile->setIsActive(true);
+        $profile->setIsDefault(true);
+
+        $exchange = new ExchangeIntegration();
+        $exchange->setTradingProfile($profile);
+        $exchange->setExchangeName(ExchangeIntegration::EXCHANGE_BYBIT);
+        $exchange->setTestnetMode(true);
+
+        $botSettings = new BotSettings();
+        $botSettings->setTradingProfile($profile);
+
+        $profile->setExchangeIntegration($exchange);
+        $profile->setBotSettings($botSettings);
+
+        $this->em->persist($profile);
+        $this->em->persist($exchange);
+        $this->em->persist($botSettings);
+        $this->em->flush();
+
+        return $profile;
     }
 }
