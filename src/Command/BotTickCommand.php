@@ -15,6 +15,7 @@ use App\Service\StrategyEngineService;
 use App\Service\StrategyProfileService;
 use App\Service\PendingActionsService;
 use App\Service\PositionLockService;
+use App\Service\RotationalGridLimitOrderManager;
 use App\Service\RotationalGridService;
 use App\Service\RiskGuardService;
 use App\Service\SettingsService;
@@ -49,6 +50,7 @@ class BotTickCommand extends Command
         private readonly StrategyEngineService  $strategyEngine,
         private readonly StrategyProfileService $strategyProfile,
         private readonly RotationalGridService  $rotationalGrid,
+        private readonly RotationalGridLimitOrderManager $gridLimitOrders,
         private readonly EntityManagerInterface $em,
         private readonly ProfileContext        $profileContext,
     ) {
@@ -251,11 +253,21 @@ class BotTickCommand extends Command
         $positionMode = $trading['position_mode'] ?? 'single';
         $rotationalSymbols = [];
         if ($positionMode === 'rotational_grid') {
-            $maxLayers     = max(1, (int)($trading['max_layers'] ?? 3));
-            $layerSizeUsdt = max(10.0, (float)($trading['layer_size_usdt'] ?? 50));
-            $gridStepPct   = max(1.0, min(20.0, (float)($trading['grid_step_pct'] ?? 5)));
-            $rotInTrend    = (bool)($trading['rotation_allowed_in_trend'] ?? false);
-            $rotInChop     = (bool)($trading['rotation_allowed_in_chop'] ?? true);
+            $orphanedPlans = $this->rotationalGrid->getOrphanedPlans($positions);
+            foreach ($orphanedPlans as $orphan) {
+                $this->gridLimitOrders->cancelPlanOrders($orphan);
+            }
+            $removed = $this->rotationalGrid->removeOrphanedPlans($positions);
+            if ($removed > 0) {
+                $io->writeln("  <comment>[GRID]</comment> Удалено {$removed} планов по закрытым позициям.");
+            }
+
+            $maxLayers       = max(1, (int)($trading['max_layers'] ?? 3));
+            $maxPositionUsdt = max(10.0, (float)($trading['max_position_usdt'] ?? 100.0));
+            $layerSizeUsdt   = max(10.0, $maxPositionUsdt / $maxLayers);
+            $gridStepPct     = max(1.0, min(20.0, (float)($trading['grid_step_pct'] ?? 5)));
+            $rotInTrend      = (bool)($trading['rotation_allowed_in_trend'] ?? false);
+            $rotInChop       = (bool)($trading['rotation_allowed_in_chop'] ?? true);
 
             foreach ($positions as $p) {
                 $symbol = $p['symbol'] ?? '';
@@ -276,7 +288,7 @@ class BotTickCommand extends Command
                 }
                 $rotationalSymbols["{$symbol}|{$side}"] = true;
 
-                $regime  = $strategySignalsBySymbol[$symbol]['regime'] ?? [];
+                $regime   = $strategySignalsBySymbol[$symbol]['regime'] ?? [];
                 $chopScore = (float)($regime['chop_score'] ?? 0.5);
                 $chopTh    = (float)($regime['chop_threshold'] ?? 0.65);
                 $trend     = $regime['trend'] ?? 'unknown';
@@ -284,44 +296,20 @@ class BotTickCommand extends Command
                 $isTrend   = in_array($trend, ['up', 'down'], true);
                 $rotationAllowed = ($isChop && $rotInChop) || ($isTrend && $rotInTrend) || (!$isChop && !$isTrend);
 
-                $markPrice = (float)($p['markPrice'] ?? $p['entryPrice'] ?? 0);
-                if ($markPrice <= 0) {
-                    continue;
-                }
+                $positionForSync = [
+                    'symbol' => $symbol,
+                    'side'   => $side,
+                    'size'   => $p['size'] ?? 0,
+                    'markPrice' => $p['markPrice'] ?? $p['entryPrice'] ?? 0,
+                    'leverage'  => $p['leverage'] ?? 1,
+                ];
 
-                if ($rotationAllowed && $this->rotationalGrid->shouldAddLayer($plan, $markPrice)) {
-                    $lev    = max(1, (int)($p['leverage'] ?? 1));
-                    $bybitSide = strtoupper($side) === 'BUY' ? 'BUY' : 'SELL';
-                    $result = $this->bybitService->placeOrder($symbol, $bybitSide, $layerSizeUsdt, $lev);
-                    if ($result['ok'] ?? false) {
-                        $nextLevel = $this->rotationalGrid->getNextAddLevel($plan, $markPrice);
-                        $this->rotationalGrid->addLayer($plan, $nextLevel ?? $markPrice, $markPrice);
-                        $this->botHistory->log('rotational_add_layer', [
-                            'symbol' => $symbol, 'side' => $side, 'level' => $nextLevel,
-                            'ok' => true, 'layers' => count($plan['active_layers'] ?? []),
-                        ]);
-                        $io->writeln("  <info>[GRID ADD]</info> {$symbol} {$side} — слой на уровне " . ($nextLevel ?? $markPrice));
-                    } elseif (!empty($result['error'])) {
-                        $io->writeln("  <error>[GRID ADD ERR]</error> {$symbol} {$side} — {$result['error']}");
-                    }
-                    continue;
-                }
-
-                if ($this->rotationalGrid->shouldUnloadLayer($plan, $markPrice)) {
-                    $size     = (float)($p['size'] ?? 0);
-                    $fraction = $this->rotationalGrid->getOneLayerFraction($plan, $size, $markPrice);
-                    if ($fraction > 0) {
-                        $result = $this->bybitService->closePositionMarket($symbol, $side, $fraction);
-                        if ($result['ok'] ?? false) {
-                            $this->rotationalGrid->removeLowestLayer($plan);
-                            $this->botHistory->log('rotational_unload_layer', [
-                                'symbol' => $symbol, 'side' => $side, 'fraction' => $fraction,
-                                'ok' => true, 'layers' => count($plan['active_layers'] ?? []),
-                            ]);
-                            $io->writeln("  <info>[GRID UNLOAD]</info> {$symbol} {$side} — закрыт 1 слой");
-                        } elseif (!empty($result['error'])) {
-                            $io->writeln("  <error>[GRID UNLOAD ERR]</error> {$symbol} {$side} — {$result['error']}");
-                        }
+                $plan = $this->gridLimitOrders->sync($plan, $positionForSync, $rotationAllowed);
+                if ($plan !== null) {
+                    $addCount  = count($plan['limit_add_orders'] ?? []);
+                    $unloadSet = isset($plan['limit_unload_order']) && $plan['limit_unload_order'] !== null;
+                    if ($addCount > 0 || $unloadSet) {
+                        $io->writeln("  <info>[GRID]</info> {$symbol} {$side} — limit: add={$addCount} unload=" . ($unloadSet ? '1' : '0'));
                     }
                 }
             }

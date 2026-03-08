@@ -1574,6 +1574,229 @@ class BybitService
     }
 
     /**
+     * Round price to instrument tickSize (for limit orders).
+     */
+    public function roundPriceToTick(string $symbol, float $price): float
+    {
+        $settings    = $this->settingsService->getBybitSettings();
+        $instrument  = $this->getInstrumentInfo($symbol, $settings);
+        $priceFilter = $instrument['priceFilter'] ?? [];
+        $tickSize    = isset($priceFilter['tickSize']) ? (float)$priceFilter['tickSize'] : 0.01;
+        if ($tickSize <= 0) {
+            $tickSize = 0.01;
+        }
+        $steps = round($price / $tickSize, 0);
+        return round($steps * $tickSize, 8);
+    }
+
+    /**
+     * Place limit order (open/add position). For rotational grid add layers.
+     *
+     * @param string      $symbol           e.g. BTCUSDT
+     * @param string      $side             Buy or Sell
+     * @param float       $price            Limit price (will be rounded to tickSize)
+     * @param float       $positionSizeUSDT Notional size in USDT
+     * @param int         $leverage
+     * @param string|null $orderLinkId      Optional custom ID (max 36 chars)
+     */
+    public function placeLimitOrder(string $symbol, string $side, float $price, float $positionSizeUSDT, int $leverage, ?string $orderLinkId = null): array
+    {
+        $settings = $this->settingsService->getBybitSettings();
+        if (empty($settings['api_key']) || empty($settings['api_secret'])) {
+            return ['ok' => false, 'error' => 'API ключи не настроены'];
+        }
+
+        try {
+            $baseUrl   = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
+            $trading   = $this->settingsService->getTradingSettings();
+            $instrument = $this->getInstrumentInfo($symbol, $settings);
+            $lotFilter  = $instrument['lotSizeFilter'] ?? [];
+            $qtyStep    = (float)($lotFilter['qtyStep'] ?? 0.001);
+            $minOrderQty = (float)($lotFilter['minOrderQty'] ?? 0);
+            $priceRounded = $this->roundPriceToTick($symbol, $price);
+
+            $rawQty = $positionSizeUSDT / $priceRounded;
+            if ($qtyStep > 0) {
+                $rawQty = floor($rawQty / $qtyStep) * $qtyStep;
+            }
+            $qty = round(max(0, $rawQty), 8);
+            if ($minOrderQty > 0 && $qty < $minOrderQty) {
+                return ['ok' => false, 'error' => sprintf('Минимальный объём %.8f для %s', $minOrderQty, $symbol)];
+            }
+            if ($qty <= 0) {
+                return ['ok' => false, 'error' => 'Объём слишком мал (qty=0)'];
+            }
+
+            $requiredMode = $trading['required_margin_mode'] ?? 'auto';
+            if ($requiredMode === 'cross') {
+                $guard = $this->ensureMarginMode(self::MARGIN_REGULAR);
+                if (!($guard['ok'] ?? false)) {
+                    return ['ok' => false, 'error' => 'Режим маржи: ' . ($guard['error'] ?? 'cross не установлен')];
+                }
+            } elseif ($requiredMode === 'isolated') {
+                $guard = $this->ensureMarginMode(self::MARGIN_ISOLATED);
+                if (!($guard['ok'] ?? false)) {
+                    return ['ok' => false, 'error' => 'Режим маржи: ' . ($guard['error'] ?? 'isolated не установлен')];
+                }
+            }
+
+            $leverage = max(1, min(100, $leverage));
+            $emptyParams = [];
+            $bodySetLev  = json_encode(['category' => 'linear', 'symbol' => $symbol, 'buyLeverage' => (string)$leverage, 'sellLeverage' => (string)$leverage]);
+            $this->requestWithRetry('POST', $baseUrl . '/v5/position/set-leverage', [
+                'headers' => $this->getAuthHeaders('POST', '/v5/position/set-leverage', $emptyParams, $settings, $bodySetLev),
+                'body'    => $bodySetLev,
+            ]);
+
+            $orderPayload = [
+                'category'    => 'linear',
+                'symbol'     => $symbol,
+                'side'       => $side,
+                'orderType'  => 'Limit',
+                'qty'        => (string)$qty,
+                'price'      => (string)$priceRounded,
+                'timeInForce'=> 'GTC',
+                'positionIdx'=> 0,
+            ];
+            if ($orderLinkId !== null && $orderLinkId !== '') {
+                $orderPayload['orderLinkId'] = substr($orderLinkId, 0, 36);
+            }
+
+            $bodyOrder = json_encode($orderPayload);
+            $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
+                'headers' => $this->getAuthHeaders('POST', '/v5/order/create', $emptyParams, $settings, $bodyOrder),
+                'body'    => $bodyOrder,
+            ]);
+
+            $data    = $response->toArray(false);
+            $retCode = $data['retCode'] ?? -1;
+            $orderId = $data['result']['orderId'] ?? null;
+            $this->log("placeLimitOrder → symbol={$symbol} side={$side} price={$priceRounded} qty={$qty} retCode={$retCode} orderId=" . ($orderId ?? 'n/a'));
+
+            if ($retCode !== 0) {
+                return ['ok' => false, 'error' => $data['retMsg'] ?? 'Unknown error', 'retCode' => $retCode];
+            }
+            return ['ok' => true, 'result' => $data['result'] ?? [], 'orderId' => $orderId];
+        } catch (\Exception $e) {
+            $this->log('placeLimitOrder Error: ' . $e->getMessage());
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Place limit reduce-only order (partial close for rotational grid unload).
+     *
+     * @param string      $symbol      e.g. BTCUSDT
+     * @param string      $currentSide Buy or Sell (position side)
+     * @param float       $price       Limit price (will be rounded to tickSize)
+     * @param float       $qty         Size in contracts to close
+     * @param string|null $orderLinkId Optional custom ID (max 36 chars)
+     */
+    public function placeLimitReduceOrder(string $symbol, string $currentSide, float $price, float $qty, ?string $orderLinkId = null): array
+    {
+        $settings   = $this->settingsService->getBybitSettings();
+        if (empty($settings['api_key']) || empty($settings['api_secret'])) {
+            return ['ok' => false, 'error' => 'API ключи не настроены'];
+        }
+
+        $instrument = $this->getInstrumentInfo($symbol, $settings);
+        $lotFilter  = $instrument['lotSizeFilter'] ?? [];
+        $qtyStep    = (float)($lotFilter['qtyStep'] ?? 0.001);
+        $minOrderQty = (float)($lotFilter['minOrderQty'] ?? 0);
+        $priceRounded = $this->roundPriceToTick($symbol, $price);
+
+        if ($qtyStep > 0) {
+            $qty = floor($qty / $qtyStep) * $qtyStep;
+        }
+        $qty = round(max(0, $qty), 8);
+        if ($minOrderQty > 0 && $qty < $minOrderQty) {
+            return ['ok' => false, 'error' => sprintf('Минимальный объём %.8f для %s', $minOrderQty, $symbol)];
+        }
+        if ($qty <= 0) {
+            return ['ok' => false, 'error' => 'Объём слишком мал (qty=0)'];
+        }
+
+        $orderSide = strtoupper($currentSide) === 'BUY' ? 'SELL' : 'BUY';
+        $baseUrl   = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
+        $emptyParams = [];
+
+        $orderPayload = [
+            'category'    => 'linear',
+            'symbol'     => $symbol,
+            'side'       => $orderSide,
+            'orderType'  => 'Limit',
+            'qty'        => (string)$qty,
+            'price'      => (string)$priceRounded,
+            'timeInForce'=> 'GTC',
+            'reduceOnly' => true,
+            'positionIdx'=> 0,
+        ];
+        if ($orderLinkId !== null && $orderLinkId !== '') {
+            $orderPayload['orderLinkId'] = substr($orderLinkId, 0, 36);
+        }
+
+        try {
+            $bodyOrder = json_encode($orderPayload);
+            $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
+                'headers' => $this->getAuthHeaders('POST', '/v5/order/create', $emptyParams, $settings, $bodyOrder),
+                'body'    => $bodyOrder,
+            ]);
+            $data    = $response->toArray(false);
+            $retCode = $data['retCode'] ?? -1;
+            $orderId = $data['result']['orderId'] ?? null;
+            $this->log("placeLimitReduceOrder → symbol={$symbol} side={$orderSide} price={$priceRounded} qty={$qty} retCode={$retCode} orderId=" . ($orderId ?? 'n/a'));
+
+            if ($retCode !== 0) {
+                return ['ok' => false, 'error' => $data['retMsg'] ?? 'Unknown error', 'retCode' => $retCode];
+            }
+            return ['ok' => true, 'result' => $data['result'] ?? [], 'orderId' => $orderId];
+        } catch (\Exception $e) {
+            $this->log('placeLimitReduceOrder Error: ' . $e->getMessage());
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Cancel order by orderId or orderLinkId.
+     */
+    public function cancelOrder(string $symbol, ?string $orderId = null, ?string $orderLinkId = null): array
+    {
+        if (($orderId ?? '') === '' && ($orderLinkId ?? '') === '') {
+            return ['ok' => false, 'error' => 'Требуется orderId или orderLinkId'];
+        }
+
+        $settings   = $this->settingsService->getBybitSettings();
+        if (empty($settings['api_key']) || empty($settings['api_secret'])) {
+            return ['ok' => false, 'error' => 'API ключи не настроены'];
+        }
+
+        $baseUrl = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
+        $body    = ['category' => 'linear', 'symbol' => $symbol];
+        if ($orderId !== null && $orderId !== '') {
+            $body['orderId'] = $orderId;
+        } else {
+            $body['orderLinkId'] = $orderLinkId;
+        }
+
+        try {
+            $bodyJson = json_encode($body);
+            $response = $this->requestWithRetry('POST', $baseUrl . '/v5/order/cancel', [
+                'headers' => $this->getAuthHeaders('POST', '/v5/order/cancel', [], $settings, $bodyJson),
+                'body'    => $bodyJson,
+            ]);
+            $data    = $response->toArray(false);
+            $retCode = $data['retCode'] ?? -1;
+            if ($retCode !== 0) {
+                return ['ok' => false, 'error' => $data['retMsg'] ?? 'Unknown error', 'retCode' => $retCode];
+            }
+            return ['ok' => true, 'result' => $data['result'] ?? []];
+        } catch (\Exception $e) {
+            $this->log('cancelOrder Error: ' . $e->getMessage());
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
      * Set stop-loss at breakeven (entry price) via /v5/position/trading-stop.
      */
     public function setBreakevenStopLoss(string $symbol, string $currentSide, float $entryPrice): array

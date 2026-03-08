@@ -17,6 +17,7 @@ use App\Service\StrategyProfileService;
 use App\Service\PendingActionsService;
 use App\Service\PositionLockService;
 use App\Service\RiskGuardService;
+use App\Service\RotationalGridLimitOrderManager;
 use App\Service\RotationalGridService;
 use App\Service\SettingsService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -45,6 +46,7 @@ class ApiController extends AbstractController
         private readonly StrategyProfileService $strategyProfile,
         private readonly PnlStatisticsService  $pnlStats,
         private readonly RotationalGridService $rotationalGrid,
+        private readonly RotationalGridLimitOrderManager $gridLimitOrders,
     ) {}
 
     // ── Positions / orders / trades ───────────────────────────────
@@ -75,7 +77,26 @@ class ApiController extends AbstractController
     #[Route('/position-plans', name: 'api_position_plans', methods: ['GET'])]
     public function getPositionPlans(): JsonResponse
     {
-        return $this->json($this->rotationalGrid->getAllPlans());
+        $allPlans = $this->rotationalGrid->getAllPlans();
+        $positions = $this->bybitService->getPositions();
+        $planKey = fn(string $s, string $side): string => strtoupper($s) . '|' . ucfirst(strtolower($side));
+        $openKeys = [];
+        foreach ($positions as $p) {
+            $sym = $p['symbol'] ?? '';
+            $side = $p['side'] ?? '';
+            if ($sym !== '') {
+                $openKeys[$planKey($sym, $side)] = true;
+            }
+        }
+        $filtered = [];
+        foreach ($allPlans as $k => $plan) {
+            $sym = $plan['symbol'] ?? '';
+            $side = $plan['side'] ?? '';
+            if (isset($openKeys[$planKey($sym, $side)])) {
+                $filtered[$k] = $plan;
+            }
+        }
+        return $this->json($filtered);
     }
 
     #[Route('/trades', name: 'api_trades', methods: ['GET'])]
@@ -324,9 +345,10 @@ class ApiController extends AbstractController
         $positionMode     = $trading['position_mode'] ?? 'single';
         $rotationalSymbols = [];
         if ($positionMode === 'rotational_grid') {
-            $maxLayers     = max(1, (int)($trading['max_layers'] ?? 3));
-            $layerSizeUsdt = max(10.0, (float)($trading['layer_size_usdt'] ?? 50));
-            $gridStepPct   = max(1.0, min(20.0, (float)($trading['grid_step_pct'] ?? 5)));
+            $maxLayers       = max(1, (int)($trading['max_layers'] ?? 3));
+            $maxPositionUsdt = max(10.0, (float)($trading['max_position_usdt'] ?? 100.0));
+            $layerSizeUsdt   = max(10.0, $maxPositionUsdt / $maxLayers);
+            $gridStepPct     = max(1.0, min(20.0, (float)($trading['grid_step_pct'] ?? 5)));
             $rotInTrend    = (bool)($trading['rotation_allowed_in_trend'] ?? false);
             $rotInChop     = (bool)($trading['rotation_allowed_in_chop'] ?? true);
 
@@ -361,35 +383,14 @@ class ApiController extends AbstractController
                     continue;
                 }
 
-                if ($rotationAllowed && $this->rotationalGrid->shouldAddLayer($plan, $markPrice)) {
-                    $lev       = max(1, (int)($p['leverage'] ?? 1));
-                    $bybitSide = strtoupper($side) === 'BUY' ? 'BUY' : 'SELL';
-                    $result    = $this->bybitService->placeOrder($symbol, $bybitSide, $layerSizeUsdt, $lev);
-                    if ($result['ok'] ?? false) {
-                        $nextLevel = $this->rotationalGrid->getNextAddLevel($plan, $markPrice);
-                        $this->rotationalGrid->addLayer($plan, $nextLevel ?? $markPrice, $markPrice);
-                        $this->botHistory->log('rotational_add_layer', [
-                            'symbol' => $symbol, 'side' => $side, 'level' => $nextLevel,
-                            'ok' => true, 'layers' => count($plan['active_layers'] ?? []),
-                        ]);
-                    }
-                    continue;
-                }
-
-                if ($this->rotationalGrid->shouldUnloadLayer($plan, $markPrice)) {
-                    $size     = (float)($p['size'] ?? 0);
-                    $fraction = $this->rotationalGrid->getOneLayerFraction($plan, $size, $markPrice);
-                    if ($fraction > 0) {
-                        $result = $this->bybitService->closePositionMarket($symbol, $side, $fraction);
-                        if ($result['ok'] ?? false) {
-                            $this->rotationalGrid->removeLowestLayer($plan);
-                            $this->botHistory->log('rotational_unload_layer', [
-                                'symbol' => $symbol, 'side' => $side, 'fraction' => $fraction,
-                                'ok' => true, 'layers' => count($plan['active_layers'] ?? []),
-                            ]);
-                        }
-                    }
-                }
+                $positionForSync = [
+                    'symbol'    => $symbol,
+                    'side'     => $side,
+                    'size'     => $p['size'] ?? 0,
+                    'markPrice'=> $markPrice,
+                    'leverage' => $p['leverage'] ?? 1,
+                ];
+                $plan = $this->gridLimitOrders->sync($plan, $positionForSync, $rotationAllowed);
             }
         }
 

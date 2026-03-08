@@ -15,6 +15,10 @@ use App\Service\Storage\PositionPlanStorageInterface;
  *   - При возврате цены вверх нижние слои разгружаются
  *   - Освобождённые слои могут быть повторно открыты ниже
  *
+ * Размер слоя: max_position_usdt / max_layers (например 300/3 = 100 USDT на слой).
+ *
+ * Limit-ордера: RotationalGridLimitOrderManager выставляет limit на добор и reduce-only на разгрузку.
+ *
  * Storage: file (var/position_plans.json) or MySQL (position_plan) depending on ProfileContext.
  */
 class RotationalGridService
@@ -255,11 +259,75 @@ class RotationalGridService
     }
 
     /**
+     * Сохраняет обновлённый план (для RotationalGridLimitOrderManager).
+     */
+    public function updatePlan(array $plan): void
+    {
+        $this->storage->savePlan($plan);
+    }
+
+    /**
      * Удаляет план (при полном закрытии позиции).
      */
     public function removePlan(string $symbol, string $side): void
     {
         $this->storage->removePlan($symbol, $side);
+    }
+
+    /**
+     * Возвращает планы без открытой позиции (для отмены ордеров перед removeOrphanedPlans).
+     *
+     * @param array $openPositions Список позиций из Bybit (symbol, side)
+     * @return array<array> Массив планов
+     */
+    public function getOrphanedPlans(array $openPositions): array
+    {
+        $openKeys = [];
+        foreach ($openPositions as $p) {
+            $sym = $p['symbol'] ?? '';
+            $side = $p['side'] ?? '';
+            if ($sym !== '') {
+                $openKeys[$this->key($sym, $side)] = true;
+            }
+        }
+        $orphaned = [];
+        foreach ($this->storage->getAllPlans() as $plan) {
+            $sym = $plan['symbol'] ?? '';
+            $side = $plan['side'] ?? '';
+            if (!isset($openKeys[$this->key($sym, $side)])) {
+                $orphaned[] = $plan;
+            }
+        }
+        return $orphaned;
+    }
+
+    /**
+     * Удаляет планы, для которых нет открытой позиции (orphaned plans).
+     *
+     * @param array $openPositions Список позиций из Bybit (symbol, side)
+     */
+    public function removeOrphanedPlans(array $openPositions): int
+    {
+        $openKeys = [];
+        foreach ($openPositions as $p) {
+            $sym = $p['symbol'] ?? '';
+            $side = $p['side'] ?? '';
+            if ($sym !== '') {
+                $openKeys[$this->key($sym, $side)] = true;
+            }
+        }
+        $allPlans = $this->storage->getAllPlans();
+        $removed = 0;
+        foreach ($allPlans as $k => $plan) {
+            $sym = $plan['symbol'] ?? '';
+            $side = $plan['side'] ?? '';
+            $key = $this->key($sym, $side);
+            if (!isset($openKeys[$key])) {
+                $this->storage->removePlan($sym, $side);
+                $removed++;
+            }
+        }
+        return $removed;
     }
 
     private function nextLayerId(array $existingIds): string

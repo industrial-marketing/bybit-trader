@@ -752,8 +752,15 @@ function loadPositionPlans() {
                 var levels = (p.levels || []).slice(0, 8);
                 var filled = layers.map(function(l){ return parseFloat(l.entry_level); });
                 var avgEntry = layers.length ? layers.reduce(function(s,l){ return s + parseFloat(l.entry_price||0); }, 0) / layers.length : anchor;
+                var addOrders = (p.limit_add_orders || []);
+                var unloadOrder = p.limit_unload_order;
+                var limitInfo = '';
+                if (addOrders.length > 0 || unloadOrder) {
+                    limitInfo = '<span style="font-size:10px; color:var(--muted);">Limit: add@' + addOrders.map(function(a){ return formatPrice(parseFloat(a.level)); }).join(',') + (unloadOrder ? ' | unload@' + formatPrice(parseFloat(unloadOrder.level)) : '') + '</span><br>';
+                }
                 return '<div class="plan-card" style="padding:12px; margin-bottom:10px; background:rgba(0,0,0,0.15); border-radius:8px; border:1px solid var(--border);">' +
                     '<strong>' + sym + ' ' + side + '</strong> — layers ' + layers.length + '/' + maxL + ' × ' + layerUsdt + ' USDT<br>' +
+                    limitInfo +
                     '<span style="font-size:11px; color:var(--muted);">Anchor: ' + formatPrice(anchor) + ' | Avg: ' + formatPrice(avgEntry) + '</span><br>' +
                     '<span style="font-size:11px;">Levels: ' + levels.map(function(l){ var v=parseFloat(l); return filled.indexOf(v)>=0 ? '<span style="color:var(--positive)">' + formatPrice(v) + '</span>' : formatPrice(v); }).join(', ') + '</span>' +
                     '</div>';
