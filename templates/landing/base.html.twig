@@ -15,8 +15,8 @@
         .landing-nav .nav-cta { display: flex; gap: 10px; align-items: center; }
         .landing-nav .btn-landing { background: var(--brand-orange); color: var(--brand-navy); padding: 8px 18px; border-radius: 8px; font-weight: 600; }
         .landing-nav .btn-landing:hover { background: #d4a00a; color: var(--brand-navy); }
-        .landing-nav .btn-outline { border: 1px solid var(--brand-orange); color: var(--brand-orange); }
-        .landing-nav .btn-outline:hover { background: rgba(245,158,11,0.15); }
+        .landing-nav .btn-landing.btn-outline { background: transparent !important; border: 1px solid var(--brand-orange); color: var(--brand-orange) !important; }
+        .landing-nav .btn-landing.btn-outline:hover { background: rgba(245,158,11,0.15) !important; color: var(--brand-orange) !important; }
         .landing-hero { padding: 80px 0 100px; text-align: center; }
         .landing-hero h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.2; }
         .landing-hero h1 span { color: var(--brand-orange); }
@@ -27,8 +27,8 @@
         .landing-hero .btn-hero { padding: 14px 28px; border-radius: 10px; font-size: 1rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; transition: transform 0.2s, box-shadow 0.2s; }
         .landing-hero .btn-primary { background: var(--brand-orange); color: var(--brand-navy); border: none; }
         .landing-hero .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(245,158,11,0.35); }
-        .landing-hero .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
-        .landing-hero .btn-secondary:hover { border-color: var(--brand-orange); color: var(--brand-orange); }
+        .landing-hero .btn-secondary { background: transparent; color: var(--brand-orange); border: 1px solid var(--brand-orange); }
+        .landing-hero .btn-secondary:hover { background: rgba(245,158,11,0.1); border-color: var(--brand-orange); color: var(--brand-orange); }
         .landing-section { padding: 60px 0; border-top: 1px solid var(--border); }
         .landing-section h2 { font-size: 1.75rem; color: var(--text); margin-bottom: 12px; }
         .landing-section .section-subtitle { color: var(--muted); margin-bottom: 40px; }

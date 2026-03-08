@@ -47,16 +47,23 @@ class ProfileContextRequestSubscriber implements EventSubscriberInterface
             return;
         }
 
+        /** @var User|null $user */
+        $user = $this->security->getUser();
+
         $profileId = $session->get(self::SESSION_KEY);
 
         if ($profileId !== null && $profileId !== '' && (int) $profileId > 0) {
-            $this->profileContext->setActiveProfileId((int) $profileId);
-            return;
+            $profile = $this->em->getRepository(TradingProfile::class)->find((int) $profileId);
+            // Only use session profile if it belongs to the current user
+            if ($profile !== null && $user !== null && $profile->getUser()->getId() === $user->getId()) {
+                $this->profileContext->setActiveProfileId((int) $profileId);
+                return;
+            }
+            // Profile belongs to another user — clear it
+            $session->remove(self::SESSION_KEY);
         }
 
         // Auto-set default profile when user is logged in but has none selected
-        /** @var User|null $user */
-        $user = $this->security->getUser();
         if ($user === null) {
             return;
         }
