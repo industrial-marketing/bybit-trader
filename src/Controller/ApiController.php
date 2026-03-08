@@ -393,9 +393,19 @@ class ApiController extends AbstractController
             }
         }
 
-        // ── LLM: manage open positions ────────────────────────────────
+        // ── LLM: manage open positions (Orchestrator + per-position) ──────
+        $exposureCheck  = $this->riskGuard->checkMaxExposure($positions);
+        $maxManaged     = max(1, (int)($trading['max_managed_positions'] ?? 10));
+        $minPositions   = max(0, (int)($trading['auto_open_min_positions'] ?? 5));
+        $slots          = $exposureCheck['ok']
+            ? max(0, min(max(0, $minPositions - $openCount), max(0, $maxManaged - $openCount)))
+            : 0;
+        $orchCtx        = [
+            'exposure_check'   => ['ok' => $exposureCheck['ok'], 'total_exposure' => $exposureCheck['total_exposure'] ?? 0, 'max_exposure' => (float)($trading['max_total_exposure_usdt'] ?? 0)],
+            'available_slots'  => $slots,
+        ];
         $manageDecisions = $this->chatGPTService->manageOpenPositions(
-            $this->bybitService, $positions, $dataFreshnessSec, $strategySignalsBySymbol
+            $this->bybitService, $positions, $dataFreshnessSec, $strategySignalsBySymbol, $orchCtx
         );
 
         if (empty($manageDecisions) && $posCount > 0) {
@@ -651,7 +661,11 @@ class ApiController extends AbstractController
                 : 0;
 
             if ($slots > 0) {
-                $proposals   = $this->chatGPTService->getProposals($this->bybitService);
+                $orchCtx = [
+                    'exposure_check'  => ['ok' => $exposureCheck['ok'], 'total_exposure' => $exposureCheck['total_exposure'] ?? 0, 'max_exposure' => (float)($trading['max_total_exposure_usdt'] ?? 0)],
+                    'available_slots' => $slots,
+                ];
+                $proposals   = $this->chatGPTService->getProposals($this->bybitService, $positions, $orchCtx);
                 $openSymbols = array_fill_keys(array_column($positions, 'symbol'), true);
 
                 foreach ($proposals as $p) {

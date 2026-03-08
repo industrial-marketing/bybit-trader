@@ -6,8 +6,9 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class ChatGPTService
 {
-    private const STRATEGY_VERSION = 'manage_v3.2';
+    private const STRATEGY_VERSION = 'manage_v4.0';
     private const SCHEMA_VERSION  = 'schema_v3';
+    private const ORCHESTRATOR_VERSION = 'orchestrator_v1';
 
     private const REQUIRED_DECISION_FIELDS = ['symbol', 'action', 'confidence', 'reason']; // risk optional, defaults to medium
 
@@ -115,191 +116,300 @@ class ChatGPTService
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // manageOpenPositions — strict contract v3
+    // Level B: Portfolio Orchestrator — high-level dispatch
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * Asks LLM for a decision on each open position.
+     * Portfolio-level LLM call. Decides which positions need detailed analysis,
+     * whether new positions can be opened, and which candidates to analyze.
      *
-     * Each returned item is guaranteed to have:
-     *   symbol, action, confidence, reason, risk,
-     *   params (close_fraction?, average_size_usdt?),
-     *   checks (pnl_positive?, trend?, averaging_allowed?),
-     *   prompt_version, llm_raw (only when JSON was invalid)
-     *
-     * On invalid JSON from LLM: all positions → DO_NOTHING, alert sent.
+     * @return array{positions: array<array{symbol: string, side: string, needs_analysis: bool, reason?: string}>, can_open_new: bool, candidates_to_analyze: string[]}|null
      */
+    public function getPortfolioOrchestration(
+        array $positions,
+        array $exposureCheck,
+        int   $availableSlots,
+        array $candidateSymbols = []
+    ): ?array {
+        if (!$this->hasAnyProvider() || empty($positions)) {
+            return null;
+        }
+
+        $totalExposure = $exposureCheck['total_exposure'] ?? 0;
+        $maxExposure   = $exposureCheck['max_exposure'] ?? 0;
+        $historyContext = $this->botHistory->getWeeklySummaryText();
+
+        $posLines = [];
+        foreach ($positions as $p) {
+            $symbol = $p['symbol'] ?? 'UNKNOWN';
+            $pnl    = (float)($p['unrealizedPnl'] ?? 0);
+            $margin = 0;
+            $size   = (float)($p['size'] ?? 0);
+            $entry  = (float)($p['entryPrice'] ?? 0);
+            $lev    = max(1, (int)($p['leverage'] ?? 1));
+            if ($size > 0 && $entry > 0) {
+                $margin = ($size * $entry) / $lev;
+            }
+            $posLines[] = sprintf('%s %s pnl=%.2f margin=%.1f opened=%s', $symbol, $p['side'] ?? '', $pnl, $margin, $p['openedAt'] ?? '');
+        }
+
+        $candidatesStr = empty($candidateSymbols) ? '[]' : implode(', ', array_slice($candidateSymbols, 0, 15));
+
+        $schema = <<<'JSON'
+{
+  "positions": [
+    {"symbol": "BTCUSDT", "side": "Buy", "needs_analysis": true, "reason": "optional"},
+    {"symbol": "ETHUSDT", "side": "Sell", "needs_analysis": false, "reason": "recent entry, skip"}
+  ],
+  "can_open_new": true,
+  "candidates_to_analyze": ["SOLUSDT", "DOGEUSDT"]
+}
+JSON;
+
+        $prompt = "PORTFOLIO ORCHESTRATOR (Level B). You decide at a high level — NOT exact actions.\n\n";
+        $prompt .= "OPEN POSITIONS (" . count($positions) . "):\n" . implode("\n", $posLines);
+        $prompt .= "\n\nTotal exposure: {$totalExposure} USDT. Max allowed: {$maxExposure} USDT.";
+        $prompt .= "\nAvailable slots for NEW positions: {$availableSlots}.";
+        $prompt .= "\n\nBOT HISTORY:\n{$historyContext}\n\n";
+        if (!empty($candidateSymbols)) {
+            $prompt .= "CANDIDATE symbols (from pre-filter): {$candidatesStr}\n\n";
+        }
+        $prompt .= "RULES:\n";
+        $prompt .= "- Set needs_analysis=true for positions that may need action (close/partial/average/move_sl).\n";
+        $prompt .= "- Set needs_analysis=false for positions to skip this tick (recent entry, grid-managed, etc). Reason optional.\n";
+        $prompt .= "- can_open_new: false if portfolio risk high, many open positions, or daily loss limit.\n";
+        $prompt .= "- candidates_to_analyze: pick 3-8 best symbols from candidate list for detailed per-symbol analysis. Empty if can_open_new=false or no candidates.\n\n";
+        $prompt .= "Return ONLY valid JSON:\n{$schema}\nNo other text.";
+
+        $result = $this->requestLLMRaw('orchestrator', [
+            ['role' => 'system', 'content' => 'You output only valid JSON objects. No prose.'],
+            ['role' => 'user', 'content' => $prompt],
+        ], 0.3, 800);
+
+        $content = $result['content'];
+        if ($content === null) {
+            return null;
+        }
+
+        if (preg_match('/\{[\s\S]*\}/u', $content, $m)) {
+            $decoded = json_decode($m[0], true);
+            if (is_array($decoded) && isset($decoded['positions']) && is_array($decoded['positions'])) {
+                return [
+                    'positions' => $decoded['positions'],
+                    'can_open_new' => (bool)($decoded['can_open_new'] ?? true),
+                    'candidates_to_analyze' => is_array($decoded['candidates_to_analyze'] ?? null)
+                        ? array_slice($decoded['candidates_to_analyze'], 0, 10)
+                        : [],
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Level C: Per-position LLM — detailed analysis for one position
+    // ═══════════════════════════════════════════════════════════════
+
     /**
-     * @param array<string, array> $strategySignalsBySymbol  Strategy blocks per symbol (profile, regime, signals, rules_hint)
+     * Single position LLM call. Full context for one position.
+     *
+     * @param array $position Single position with priceHistory, klineRaw, etc.
+     * @param array $strategySignals Strategy block (profile, regime, signals)
+     */
+    public function manageSinglePosition(
+        array $position,
+        float $dataFreshnessSec = 0.0,
+        array $strategySignals = []
+    ): array {
+        if (!$this->hasAnyProvider()) {
+            return $this->doNothingDecision($position['symbol'] ?? 'UNKNOWN', 'no_provider', '', 'none');
+        }
+
+        $symbol   = $position['symbol'] ?? 'UNKNOWN';
+        $hist     = $position['priceHistory'] ?? 'no market history';
+        $tfMinutes = (int)($position['priceHistoryTimeframe'] ?? 0);
+        $tfLabel  = $tfMinutes > 0 ? "{$tfMinutes}min" : 'unknown';
+
+        $size     = (float)($position['size'] ?? 0);
+        $mark     = (float)($position['markPrice'] ?? $position['entryPrice'] ?? 0);
+        $notional = $size * $mark;
+        $costEst  = $this->costEstimator->estimateTotalCost($notional, $symbol, false, 0);
+        $costStr  = sprintf('est_cost_roundtrip=%.2f USDT (fees+slip+fund)', $costEst['total_usdt']);
+
+        $strategyBlock = '';
+        if (!empty($strategySignals)) {
+            $strategyBlock = "\n  strategy: " . json_encode([
+                'profile' => $strategySignals['profile'] ?? null,
+                'regime'  => $strategySignals['regime'] ?? [],
+                'signals' => $strategySignals['signals'] ?? [],
+                'rules_hint' => $strategySignals['rules_hint'] ?? [],
+            ], JSON_UNESCAPED_UNICODE);
+        }
+
+        $line = sprintf(
+            "%s side=%s size=%s entry=%s mark=%s pnl=%s lev=%sx opened=%s | %s\n  market_hist(%s): %s%s",
+            $symbol, $position['side'] ?? '',
+            $position['size'] ?? '0', $position['entryPrice'] ?? '0',
+            $position['markPrice'] ?? '0', $position['unrealizedPnl'] ?? '0',
+            $position['leverage'] ?? '1', $position['openedAt'] ?? '',
+            $costStr, $tfLabel, $hist, $strategyBlock
+        );
+
+        $events = $this->botHistory->getRecentEvents(7);
+        $averagedList = 'none';
+        foreach ($events as $e) {
+            if (($e['type'] ?? '') === 'average_in' && ($e['symbol'] ?? '') === $symbol) {
+                $averagedList = $symbol;
+                break;
+            }
+        }
+        $historyContext = $this->botHistory->getWeeklySummaryText();
+
+        $schema = <<<'JSON'
+{
+  "symbol": "BTCUSDT",
+  "action": "CLOSE_FULL|CLOSE_PARTIAL|MOVE_STOP_TO_BREAKEVEN|AVERAGE_IN_ONCE|DO_NOTHING",
+  "confidence": <0-100>,
+  "reason": "<1-3 sentences>",
+  "risk": "low|medium|high",
+  "params": {"close_fraction": <0.1-1.0 or null>, "average_size_usdt": <number or null>},
+  "checks": {"pnl_positive": true|false, "trend": "bullish|bearish|sideways|unknown", "averaging_allowed": true|false}
+}
+JSON;
+
+        $freshnessNote = $dataFreshnessSec > 0
+            ? sprintf("⚠️ DATA FRESHNESS: %.1fs old. Factor into confidence.\n", $dataFreshnessSec)
+            : '';
+
+        $prompt = "TRADING TIMEFRAME: {$tfLabel}. Single position analysis.\n";
+        $prompt .= $freshnessNote;
+        $prompt .= "POSITION:\n{$line}\n\n";
+        $prompt .= "BOT HISTORY:\n{$historyContext}\nAveraged recently: {$averagedList}\n\n";
+        $prompt .= "RULES: Edge must exceed costs×2. AVERAGE_IN only if NOT in averaged list + regime!=chop. CLOSE_PARTIAL fraction 0.1–0.5.\n\n";
+        $prompt .= "Return ONLY valid JSON (single object):\n{$schema}\nNo other text.";
+
+        $result = $this->requestLLMRaw('manage_single', [
+            ['role' => 'system', 'content' => 'You output only valid JSON objects. No prose.'],
+            ['role' => 'user', 'content' => $prompt],
+        ], 0.4, 500);
+
+        $content = $result['content'];
+        $provider = $result['provider'] ?? 'unknown';
+
+        if ($content === null) {
+            return $this->doNothingDecision($symbol, 'llm_no_response', '', $provider);
+        }
+
+        if (preg_match('/\{[\s\S]*\}/u', $content, $m)) {
+            $item = json_decode($m[0], true);
+            if (is_array($item) && ($item['symbol'] ?? '') === $symbol) {
+                $action = strtoupper($item['action'] ?? 'DO_NOTHING');
+                if (!in_array($action, self::VALID_ACTIONS, true)) {
+                    $action = 'DO_NOTHING';
+                }
+                $params = $item['params'] ?? [];
+                $checks = $item['checks'] ?? [];
+
+                return [
+                    'symbol' => $symbol,
+                    'action' => $action,
+                    'confidence' => min(100, max(0, (int)($item['confidence'] ?? 0))),
+                    'reason' => mb_substr((string)($item['reason'] ?? ''), 0, 500),
+                    'risk' => strtolower($item['risk'] ?? 'medium'),
+                    'checks' => [
+                        'pnl_positive' => $checks['pnl_positive'] ?? null,
+                        'trend' => $checks['trend'] ?? null,
+                        'averaging_allowed' => $checks['averaging_allowed'] ?? null,
+                        'strategy_profile' => $checks['strategy_profile'] ?? null,
+                        'strategy_alignment' => $checks['strategy_alignment'] ?? null,
+                        'regime' => $checks['regime'] ?? null,
+                    ],
+                    'close_fraction' => isset($params['close_fraction']) ? max(0.05, min(1.0, (float)$params['close_fraction'])) : null,
+                    'average_size_usdt' => isset($params['average_size_usdt']) ? max(0.0, (float)$params['average_size_usdt']) : null,
+                    'note' => (string)($item['reason'] ?? ''),
+                    'prompt_version' => self::STRATEGY_VERSION,
+                    'schema_version' => self::SCHEMA_VERSION,
+                    'prompt_checksum' => '',
+                    'canary' => $this->isCanaryMode(),
+                    'provider' => $provider,
+                    'llm_raw' => null,
+                ];
+            }
+        }
+
+        return $this->doNothingDecision($symbol, 'invalid_single_response', $content, $provider);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // manageOpenPositions — cascaded: Orchestrator + per-position LLM
+    // ═══════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Cascaded LLM: Orchestrator (Level B) + per-position analysis (Level C).
+     *
+     * @param array<string, array> $strategySignalsBySymbol Strategy blocks per symbol
+     * @param array|null $orchestratorContext {exposure_check: array, available_slots: int} — optional, enables orchestrator
      */
     public function manageOpenPositions(
         BybitService $bybitService,
         array       $positions,
         float       $dataFreshnessSec = 0.0,
-        array       $strategySignalsBySymbol = []
+        array       $strategySignalsBySymbol = [],
+        ?array      $orchestratorContext = null
     ): array {
         if (!$this->hasAnyProvider() || empty($positions)) {
             return [];
         }
 
-        $trading    = $this->settingsService->getTradingSettings();
+        $trading   = $this->settingsService->getTradingSettings();
         $maxManaged = max(1, (int)($trading['max_managed_positions'] ?? 10));
-        $positions  = array_slice($positions, 0, $maxManaged);
-        $posCount   = count($positions);
+        $positions = array_slice($positions, 0, $maxManaged);
 
-        // Adaptive price-point budget
-        $charBudget     = 14000;
-        $available      = max(0, $charBudget - 2500 - $posCount * 130);
-        $maxPricePoints = $posCount > 0 ? max(5, min(30, (int)floor($available / ($posCount * 8)))) : 30;
-
-        $tfMinutes = 0;
-        foreach ($positions as $p) {
-            if (isset($p['priceHistoryTimeframe'])) {
-                $tfMinutes = (int)$p['priceHistoryTimeframe'];
-                break;
-            }
-        }
-        $tfLabel = $tfMinutes > 0 ? "{$tfMinutes}min" : 'unknown';
-
-        // Build position lines with cost estimate + strategy signals
-        $lines = [];
-        foreach ($positions as $p) {
-            $hist     = $p['priceHistory'] ?? 'no market history';
-            $symbol   = $p['symbol'] ?? 'UNKNOWN';
-            $size     = (float)($p['size'] ?? 0);
-            $mark     = (float)($p['markPrice'] ?? $p['entryPrice'] ?? 0);
-            $notional = $size * $mark;
-            $costEst  = $this->costEstimator->estimateTotalCost($notional, $symbol, false, 0);
-            $costStr  = sprintf('est_cost_roundtrip=%.2f USDT (fees+slip+fund)', $costEst['total_usdt']);
-
-            $strategyBlock = '';
-            if (isset($strategySignalsBySymbol[$symbol])) {
-                $sig = $strategySignalsBySymbol[$symbol];
-                $strategyBlock = "\n  strategy: " . json_encode([
-                    'profile' => $sig['profile'] ?? null,
-                    'regime'  => $sig['regime'] ?? [],
-                    'signals' => $sig['signals'] ?? [],
-                    'rules_hint' => $sig['rules_hint'] ?? [],
-                ], JSON_UNESCAPED_UNICODE);
-            }
-
-            $lines[] = sprintf(
-                "%s side=%s size=%s entry=%s mark=%s pnl=%s lev=%sx opened=%s | %s\n  market_hist(%s): %s%s",
-                $symbol, $p['side'] ?? '',
-                $p['size'] ?? '0', $p['entryPrice'] ?? '0',
-                $p['markPrice'] ?? '0', $p['unrealizedPnl'] ?? '0',
-                $p['leverage'] ?? '1', $p['openedAt'] ?? '',
-                $costStr,
-                $tfLabel, $hist,
-                $strategyBlock
-            );
-        }
-
-        // Recent averaging info
-        $events          = $this->botHistory->getRecentEvents(7);
-        $averagedSymbols = [];
-        foreach ($events as $e) {
-            if (($e['type'] ?? '') === 'average_in' && !empty($e['symbol'])) {
-                $averagedSymbols[$e['symbol']] = true;
-            }
-        }
-        $averagedList    = empty($averagedSymbols) ? 'none' : implode(', ', array_keys($averagedSymbols));
-        $historyContext  = $this->botHistory->getWeeklySummaryText();
-
-        // ── Strict-contract prompt (manage_v3.2 with StrategySignals) ─────
-        $schema = <<<'JSON'
-{
-  "symbol": "BTCUSDT",
-  "action": "CLOSE_FULL|CLOSE_PARTIAL|MOVE_STOP_TO_BREAKEVEN|AVERAGE_IN_ONCE|DO_NOTHING",
-  "confidence": <integer 0-100>,
-  "reason": "<1-3 sentences. Mention StrategySignals + kline trend + risk>",
-  "risk": "low|medium|high",
-  "params": {
-    "close_fraction": <0.1-1.0 or null>,
-    "average_size_usdt": <number or null>
-  },
-  "checks": {
-    "pnl_positive": <true|false>,
-    "trend": "bullish|bearish|sideways|unknown",
-    "averaging_allowed": <true|false>,
-    "strategy_profile": "scalp|intraday|swing|chop|unknown",
-    "strategy_alignment": <true|false>,
-    "regime": "trend|chop|volatile|unknown"
-  }
-}
-JSON;
-
-        $freshnessNote = '';
-        if ($dataFreshnessSec > 0) {
-            $freshnessNote = sprintf(
-                "⚠️ DATA FRESHNESS: markPrice/PnL are %.1fs old. Factor this uncertainty into confidence scores.\n",
-                $dataFreshnessSec
-            );
-        }
-
-        $strategyIntro = empty($strategySignalsBySymbol) ? '' : (
-            "StrategySignals (strategy block per position) are computed indicators. DO NOT invent values.\n" .
-            "If StrategySignals missing → treat as unknown, prefer DO_NOTHING or lower confidence.\n" .
-            "Use strategy.profile + strategy.regime as primary context. Different timeframes = different profiles.\n"
-        );
-
-        $prompt  = "TRADING TIMEFRAME: {$tfLabel}. Use market price history on this timeframe for trend/momentum.\n";
-        $prompt .= "Price history = real market prices. ⚠️ If history is insufficient — note uncertainty.\n";
-        $prompt .= $strategyIntro;
-        $prompt .= $freshnessNote . "\n";
-        $prompt .= "OPEN POSITIONS ({$posCount}):\n" . implode("\n\n", $lines);
-        $prompt .= "\n\nBOT HISTORY (last 7 days):\n" . $historyContext;
-        $prompt .= "\nAveraged in last 7 days: {$averagedList}.\n\n";
-        $prompt .= "RULES:\n";
-        $prompt .= "- Each position shows est_cost_roundtrip (fees + slippage + funding). Edge must exceed costs × 2.\n";
-        $prompt .= "- Fees ≈ 0.12% round-trip; + slippage + funding. Avoid tiny-edge trades (PnL near 0).\n";
-        $prompt .= "- Only AVERAGE_IN_ONCE if symbol NOT in averaged list AND regime != chop AND you see a strong edge.\n";
-        $prompt .= "- In chop regime prefer DO_NOTHING or CLOSE_PARTIAL to reduce risk.\n";
-        $prompt .= "- Strong trend + pnl>0 => consider MOVE_STOP_TO_BREAKEVEN (if not already).\n";
-        $prompt .= "- CLOSE_PARTIAL fraction must be 0.1–0.5.\n";
-        $prompt .= "- Fill checks from position pnl and strategy. If signals contradict => strategy_alignment=false, reduce confidence.\n\n";
-        $orderHint = implode(', ', array_map(fn($p) => $p['symbol'] ?? '?', array_slice($positions, 0, 10)));
-        if ($posCount > 10) {
-            $orderHint .= ', ...';
-        }
-        $prompt .= "STRICT OUTPUT CONTRACT: Return a JSON **array** with EXACTLY {$posCount} elements.\n";
-        $prompt .= "Order MUST match: [{$orderHint}]. Index 0 = first position, 1 = second, etc.\n";
-        $prompt .= "Each element MUST contain ALL fields:\n{$schema}\n";
-        $prompt .= "Each element's \"symbol\" MUST match the position at that index. Missing/wrong → DO_NOTHING. No extra text.";
-
-        // Emergency token-budget fallback
-        if (strlen($prompt) > $charBudget) {
-            $shortLines = [];
+        $needsAnalysisMap = []; // symbol|side => true (all need by default)
+        if ($orchestratorContext !== null && count($positions) > 1) {
+            $exposureCheck = $orchestratorContext['exposure_check'] ?? ['ok' => true, 'total_exposure' => 0, 'max_exposure' => 0];
+            $availableSlots = (int)($orchestratorContext['available_slots'] ?? 0);
+            $totalExp = 0.0;
             foreach ($positions as $p) {
-                $shortLines[] = sprintf(
-                    "%s side=%s size=%s entry=%s mark=%s pnl=%s lev=%sx",
-                    $p['symbol'] ?? 'UNKNOWN', $p['side'] ?? '',
-                    $p['size'] ?? '0', $p['entryPrice'] ?? '0',
-                    $p['markPrice'] ?? '0', $p['unrealizedPnl'] ?? '0',
-                    $p['leverage'] ?? '1'
-                );
+                $size = (float)($p['size'] ?? 0);
+                $entry = (float)($p['entryPrice'] ?? 0);
+                $lev = max(1, (int)($p['leverage'] ?? 1));
+                $totalExp += ($size * $entry) / $lev;
             }
-            $prompt  = "TRADING TIMEFRAME: {$tfLabel}. ⚠️ History omitted (token budget).\n\n";
-            $prompt .= "OPEN POSITIONS ({$posCount}):\n" . implode("\n", $shortLines);
-            $prompt .= "\n\nBOT HISTORY:\n" . $historyContext;
-            $prompt .= "\nAveraged: {$averagedList}.\n\n";
-            $prompt .= "STRICT OUTPUT CONTRACT: JSON array with EXACTLY {$posCount} elements in order [{$orderHint}]. Each:\n{$schema}\nNo extra text.";
+            $maxExp = (float)($trading['max_total_exposure_usdt'] ?? 0);
+            $orch = $this->getPortfolioOrchestration(
+                $positions,
+                ['total_exposure' => $totalExp, 'max_exposure' => $maxExp],
+                $availableSlots,
+                []
+            );
+            if ($orch !== null) {
+                foreach ($orch['positions'] as $po) {
+                    $sym  = $po['symbol'] ?? '';
+                    $side = ucfirst(strtolower($po['side'] ?? ''));
+                    if ($sym !== '' && in_array($side, ['Buy', 'Sell'], true)) {
+                        $needsAnalysisMap["{$sym}|{$side}"] = (bool)($po['needs_analysis'] ?? true);
+                    }
+                }
+            }
         }
 
-        // Ensure enough tokens for N positions (~300 tokens per decision)
-        $maxTokens = max(2000, 800 + $posCount * 350);
+        $out = [];
+        foreach ($positions as $p) {
+            $symbol = $p['symbol'] ?? 'UNKNOWN';
+            $side   = $p['side'] ?? '';
 
-        $result = $this->requestLLMRaw(
-            'manage_positions',
-            [
-                ['role' => 'system', 'content' => 'You output only valid JSON arrays. Follow the exact schema provided. No prose.'],
-                ['role' => 'user',   'content' => $prompt],
-            ],
-            0.4,
-            $maxTokens
-        );
+            if (isset($needsAnalysisMap["{$symbol}|{$side}"]) && !$needsAnalysisMap["{$symbol}|{$side}"]) {
+                $out[] = $this->doNothingDecision($symbol, 'orchestrator_skip', '', 'orchestrator');
+                continue;
+            }
 
-        $promptChecksum = substr(md5($prompt), 0, 8);
+            $signals = $strategySignalsBySymbol[$symbol] ?? [];
+            $decision = $this->manageSinglePosition($p, $dataFreshnessSec, $signals);
+            $out[] = $decision;
+        }
 
         if (!empty($strategySignalsBySymbol)) {
             $this->botHistory->log('strategy_signals', [
@@ -308,14 +418,7 @@ JSON;
             ]);
         }
 
-        $rawContent = $result['content'];
-        $provider   = $result['provider'] ?? 'unknown';
-
-        if ($rawContent === null) {
-            return [];
-        }
-
-        return $this->parseManageResponse($rawContent, $positions, $provider, $promptChecksum);
+        return $out;
     }
 
     /**
@@ -469,15 +572,23 @@ JSON;
             'prompt_version'     => self::STRATEGY_VERSION,
             'provider'           => $provider,
             'llm_raw'            => mb_substr($raw, 0, 300),
+            'canary'             => $this->isCanaryMode(),
         ];
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // getProposals
+    // getProposals — Level A filter + Orchestrator + per-candidate LLM
     // ═══════════════════════════════════════════════════════════════
 
-    public function getProposals(BybitService $bybitService): array
-    {
+    /**
+     * @param array $positions       Current open positions (for orchestrator when cascaded)
+     * @param array|null $orchContext exposure_check, available_slots — enables per-candidate flow
+     */
+    public function getProposals(
+        BybitService $bybitService,
+        array $positions = [],
+        ?array $orchContext = null
+    ): array {
         if (!$this->hasAnyProvider()) {
             return [];
         }
@@ -487,16 +598,144 @@ JSON;
             return [];
         }
 
-        $trading         = $this->settingsService->getTradingSettings();
-        $maxMarginUsdt   = (float)($trading['max_position_usdt'] ?? 100.0);
-        $minMarginUsdt   = max(0, (float)($trading['min_position_usdt'] ?? 10.0));
-        $minLev          = max(1, (int)($trading['min_leverage'] ?? 1));
-        $maxLev          = max($minLev, (int)($trading['max_leverage'] ?? 5));
-        $aggr            = $trading['aggressiveness'] ?? 'balanced';
-        $maxNotional     = $maxMarginUsdt * $maxLev;
-        $minNotional     = $minMarginUsdt * $minLev;
-        $defaultSize     = max($minNotional, 10.0);
+        $trading       = $this->settingsService->getTradingSettings();
+        $maxMarginUsdt = (float)($trading['max_position_usdt'] ?? 100.0);
+        $minMarginUsdt = max(0, (float)($trading['min_position_usdt'] ?? 10.0));
+        $minLev        = max(1, (int)($trading['min_leverage'] ?? 1));
+        $maxLev        = max($minLev, (int)($trading['max_leverage'] ?? 5));
+        $aggr          = $trading['aggressiveness'] ?? 'balanced';
+        $maxNotional   = $maxMarginUsdt * $maxLev;
+        $minNotional   = $minMarginUsdt * $minLev;
+        $defaultSize   = max($minNotional, 10.0);
+        $botTimeframe  = max(1, (int)($trading['bot_timeframe'] ?? 5));
+        $historyCandles = max(20, min(60, (int)($trading['bot_history_candles'] ?? 60)));
 
+        // Level A: deterministic pre-filter — exclude open symbols
+        $openSymbols = array_fill_keys(array_column($positions, 'symbol'), true);
+        $candidates  = [];
+        foreach ($markets as $m) {
+            $sym = $m['symbol'] ?? '';
+            if ($sym !== '' && !isset($openSymbols[$sym])) {
+                $candidates[] = $sym;
+            }
+        }
+
+        if (empty($candidates)) {
+            return [];
+        }
+
+        // Cascaded: Orchestrator + per-candidate when we have positions and context
+        $useCascaded = !empty($positions) && $orchContext !== null
+            && ($orchContext['available_slots'] ?? 0) > 0
+            && ($orchContext['exposure_check']['ok'] ?? true);
+
+        if ($useCascaded && count($candidates) > 3) {
+            $exposureCheck = $orchContext['exposure_check'] ?? ['total_exposure' => 0, 'max_exposure' => 0];
+            $orch = $this->getPortfolioOrchestration(
+                $positions,
+                $exposureCheck,
+                (int)($orchContext['available_slots'] ?? 0),
+                $candidates
+            );
+
+            if ($orch !== null && $orch['can_open_new'] && !empty($orch['candidates_to_analyze'])) {
+                $toAnalyze = $orch['candidates_to_analyze'];
+                $proposals = [];
+
+                foreach ($toAnalyze as $symbol) {
+                    $marketItem = null;
+                    foreach ($markets as $m) {
+                        if (($m['symbol'] ?? '') === $symbol) {
+                            $marketItem = $m;
+                            break;
+                        }
+                    }
+                    if ($marketItem === null) {
+                        continue;
+                    }
+
+                    $proposal = $this->analyzeCandidate($bybitService, $symbol, $marketItem, $botTimeframe, $historyCandles, $minLev, $maxLev, $maxNotional, $defaultSize, $minNotional);
+                    if ($proposal !== null && ($proposal['confidence'] ?? 0) >= 70) {
+                        $proposals[] = $proposal;
+                    }
+                }
+
+                usort($proposals, fn($a, $b) => ($b['confidence'] ?? 0) <=> ($a['confidence'] ?? 0));
+                return $proposals;
+            }
+        }
+
+        // Fallback: single batch (for API preview or when orchestrator/cascaded not used)
+        return $this->getProposalsBatch($bybitService, $markets, $minLev, $maxLev, $maxNotional, $defaultSize, $minNotional, $aggr);
+    }
+
+    /** Per-candidate LLM (Level C) — detailed analysis for one symbol. */
+    private function analyzeCandidate(
+        BybitService $bybitService,
+        string $symbol,
+        array $marketItem,
+        int $botTimeframe,
+        int $historyCandles,
+        int $minLev,
+        int $maxLev,
+        float $maxNotional,
+        float $defaultSize,
+        float $minNotional
+    ): ?array {
+        $klineData = $bybitService->getKlineData($symbol, $botTimeframe, $historyCandles, 15);
+        $klineSummary = $klineData['summary'] ?? '';
+
+        $price    = $marketItem['lastPrice'] ?? 0;
+        $chg24    = isset($marketItem['price24hPcnt']) ? round((float)$marketItem['price24hPcnt'], 2) : 0;
+        $volume   = $marketItem['volume24h'] ?? 0;
+
+        $prompt = "Per-symbol analysis for {$symbol}. Entry candidate.\n\n";
+        $prompt .= "Market: price={$price} 24h%={$chg24} volume={$volume}\n";
+        $prompt .= "Kline history ({$botTimeframe}m): {$klineSummary}\n\n";
+        $prompt .= "Constraints: position size " . round($minNotional, 0) . "–" . round($maxNotional, 0) . " USDT, leverage {$minLev}x–{$maxLev}x.\n";
+        $prompt .= "Return ONLY JSON: {\"symbol\":\"{$symbol}\",\"signal\":\"BUY|SELL\",\"confidence\":<0-100>,\"reason\":\"...\",\"position_size_usdt\":<n>,\"leverage\":<int>}. No other text.";
+
+        $content = $this->requestLLMContent('analyze_candidate', [
+            ['role' => 'system', 'content' => 'You output only valid JSON objects. No prose.'],
+            ['role' => 'user', 'content' => $prompt],
+        ], 0.5, 400);
+
+        if ($content === null) {
+            return null;
+        }
+
+        if (preg_match('/\{[\s\S]*\}/u', $content, $m)) {
+            $item = json_decode($m[0], true);
+            if (is_array($item) && ($item['symbol'] ?? '') === $symbol && in_array($item['signal'] ?? '', ['BUY', 'SELL'], true)) {
+                $conf = min(100, max(0, (int)($item['confidence'] ?? 0)));
+                $size = max($minNotional, min($maxNotional, (float)($item['position_size_usdt'] ?? $defaultSize)));
+                $lev  = min(max((int)($item['leverage'] ?? $minLev), $minLev), $maxLev);
+
+                return [
+                    'symbol'           => $symbol,
+                    'signal'           => strtoupper($item['signal']),
+                    'confidence'       => $conf,
+                    'reason'           => $item['reason'] ?? '',
+                    'positionSizeUSDT' => $size,
+                    'leverage'         => $lev,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /** Legacy batch mode — single LLM call for all candidates. */
+    private function getProposalsBatch(
+        BybitService $bybitService,
+        array $markets,
+        int $minLev,
+        int $maxLev,
+        float $maxNotional,
+        float $defaultSize,
+        float $minNotional,
+        string $aggr
+    ): array {
         $lines = [];
         foreach ($markets as $m) {
             $lines[] = sprintf(
@@ -508,32 +747,28 @@ JSON;
         }
 
         $historyContext = $this->botHistory->getWeeklySummaryText();
+        $minMarginUsdt  = $minNotional / max(1, $minLev);
+        $maxMarginUsdt  = $maxNotional / max(1, $minLev);
 
         $prompt  = "You are a professional crypto analyst. Below are top symbols with 24h data.\n\n";
         $prompt .= implode("\n", $lines);
         $prompt .= "\n\nRecent bot performance:\n" . $historyContext . "\n\n";
         $prompt .= "Pick 5-10 best trading opportunities (BUY or SELL, skip HOLD). Confidence ≥ 60. ";
-        $prompt .= "Fees ≈ 0.06 %/side; avoid tiny-edge proposals.\n";
-        $prompt .= "Position size (notional): min {$minNotional} max {$maxNotional} USDT (margin min {$minMarginUsdt} max {$maxMarginUsdt}). Default size: {$defaultSize} USDT. Leverage {$minLev}x–{$maxLev}x. Aggressiveness: {$aggr}.\n\n";
+        $prompt .= "Position size (notional): min {$minNotional} max {$maxNotional} USDT. Leverage {$minLev}x–{$maxLev}x. Aggressiveness: {$aggr}.\n\n";
         $prompt .= 'Return JSON array: [{"symbol":"X","signal":"BUY|SELL","confidence":<0-100>,"reason":"...","position_size_usdt":<n>,"leverage":<int>}]. No other text.';
 
-        try {
-            $content = $this->requestLLMContent('proposals', [
-                ['role' => 'system', 'content' => 'You output only valid JSON arrays.'],
-                ['role' => 'user',   'content' => $prompt],
-            ], 0.5, 1500);
+        $content = $this->requestLLMContent('proposals', [
+            ['role' => 'system', 'content' => 'You output only valid JSON arrays.'],
+            ['role' => 'user', 'content' => $prompt],
+        ], 0.5, 1500);
 
-            if ($content === null) {
-                return [];
-            }
-
-            $proposals = $this->parseProposalsResponse($content, $minLev, $maxLev, $maxNotional, $defaultSize, $minNotional);
-            usort($proposals, fn($a, $b) => ($b['confidence'] ?? 0) <=> ($a['confidence'] ?? 0));
-            return $proposals;
-        } catch (\Exception $e) {
-            $this->log('getProposals Error: ' . $e->getMessage());
+        if ($content === null) {
             return [];
         }
+
+        $proposals = $this->parseProposalsResponse($content, $minLev, $maxLev, $maxNotional, $defaultSize, $minNotional);
+        usort($proposals, fn($a, $b) => ($b['confidence'] ?? 0) <=> ($a['confidence'] ?? 0));
+        return $proposals;
     }
 
     private function parseProposalsResponse(string $content, int $minLev, int $maxLev, float $maxUsdt, float $defaultSize, float $minUsdt = 0): array
