@@ -16,6 +16,17 @@
         .landing-nav a { color: var(--muted); text-decoration: none; padding: 8px 14px; border-radius: 6px; font-size: 14px; transition: color 0.2s, background 0.2s; }
         .landing-nav a:hover { color: var(--brand-orange); background: rgba(245,158,11,0.1); }
         .landing-nav .nav-cta { display: flex; gap: 10px; align-items: center; }
+        .landing-nav .nav-burger { display: none; width: 36px; height: 36px; padding: 8px; background: none; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; cursor: pointer; flex-direction: column; justify-content: center; gap: 5px; }
+        .landing-nav .nav-burger span { display: block; width: 100%; height: 2px; background: var(--muted); transition: var(--transition); border-radius: 2px; }
+        .landing-nav .nav-burger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+        .landing-nav .nav-burger.open span:nth-child(2) { opacity: 0; }
+        .landing-nav .nav-burger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+        @media (max-width: 900px) {
+            .landing-nav .nav-burger { display: flex; }
+            .landing-nav .nav-cta { display: none; position: absolute; top: 100%; left: 0; right: 0; flex-direction: column; background: #0B1220; border-bottom: 2px solid rgba(245,158,11,0.3); padding: 16px; gap: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+            .landing-nav .nav-cta.open { display: flex; }
+            .landing-nav .container { position: relative; }
+        }
         .landing-nav .btn-landing { background: var(--brand-orange); color: var(--brand-navy); padding: 8px 18px; border-radius: 8px; font-weight: 600; }
         .landing-nav .btn-landing:hover { background: #d4a00a; color: var(--brand-navy); }
         .landing-nav .btn-landing.btn-outline { background: transparent !important; border: 1px solid var(--brand-orange); color: var(--brand-orange) !important; }
@@ -35,12 +46,12 @@
         .landing-section { padding: 60px 0; border-top: 1px solid var(--border); }
         .landing-section h2 { font-size: 1.75rem; color: var(--text); margin-bottom: 12px; }
         .landing-section .section-subtitle { color: var(--muted); margin-bottom: 40px; }
-        .landing-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; max-width: 900px; margin: 0 auto; }
+        .landing-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; max-width: 960px; margin: 0 auto; }
         .landing-step { text-align: center; padding: 24px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
         .landing-step .step-num { width: 48px; height: 48px; background: rgba(245,158,11,0.2); color: var(--brand-orange); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; margin: 0 auto 16px; }
         .landing-step h4 { font-size: 1rem; margin-bottom: 8px; }
         .landing-step p { font-size: 0.9rem; color: var(--muted); }
-        .landing-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+        .landing-features { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; max-width: 960px; margin: 0 auto; }
         .landing-feature { padding: 28px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
         .landing-feature i { font-size: 1.75rem; color: var(--brand-orange); margin-bottom: 16px; }
         .landing-feature h4 { font-size: 1.1rem; margin-bottom: 10px; }
@@ -70,6 +81,10 @@
         .landing-features-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); gap: 1px; max-width: 1000px; margin: 48px auto 0; border-radius: var(--radius); overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.4); border: 1px solid var(--border); }
         .landing-features-grid .grid-cell { aspect-ratio: 4/3; min-height: 160px; background-image: url(/assets/images/landing-features-grid.png); background-size: 300% 200%; background-position: var(--bp-x) var(--bp-y); background-repeat: no-repeat; }
         @media (max-width: 700px) { .landing-features-grid { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(3, 1fr); } .landing-features-grid .grid-cell { min-height: 120px; } }
+        @media (max-width: 900px) { .landing-steps, .landing-features { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 500px) { .landing-steps, .landing-features { grid-template-columns: 1fr; } .landing-logo { height: 48px !important; } }
+        .landing-nav .landing-logo { height: 72px; }
+        @media (max-width: 900px) { .landing-nav .landing-logo { height: 56px; } }
     </style>
     {% block head %}{% endblock %}
 </head>
@@ -77,9 +92,10 @@
     <nav class="landing-nav">
         <div class="container">
             <a href="/" class="navbar-brand" style="padding: 4px 8px;">
-                <img src="/assets/brand/bybit_trader_logo.png" alt="Bybit Trader" class="brand-logo" style="height: 36px;">
+                <img src="/assets/brand/bybit_trader_logo.png" alt="Bybit Trader" class="brand-logo landing-logo">
             </a>
-            <div class="nav-cta">
+            <button type="button" class="nav-burger" id="landing-nav-burger" aria-label="Menu"><span></span><span></span><span></span></button>
+            <div class="nav-cta" id="landing-nav-menu">
                 <a href="#features">Features</a>
                 <a href="#how-it-works">How it works</a>
                 <a href="#security">Security</a>
@@ -92,6 +108,24 @@
 
     {% block content %}{% endblock %}
 
+    <script>
+    (function() {
+        var burger = document.getElementById('landing-nav-burger');
+        var menu = document.getElementById('landing-nav-menu');
+        if (burger && menu) {
+            burger.addEventListener('click', function() {
+                burger.classList.toggle('open');
+                menu.classList.toggle('open');
+            });
+            menu.querySelectorAll('a').forEach(function(a) {
+                a.addEventListener('click', function() {
+                    burger.classList.remove('open');
+                    menu.classList.remove('open');
+                });
+            });
+        }
+    })();
+    </script>
     <footer class="landing-footer">
         <div class="container">
             <div class="footer-brand" style="display:flex;flex-direction:column;align-items:flex-start;gap:4px;">
