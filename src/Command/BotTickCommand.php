@@ -20,6 +20,7 @@ use App\Service\RotationalGridService;
 use App\Service\RiskGuardService;
 use App\Service\SettingsService;
 use App\Service\Settings\ProfileContext;
+use App\Service\Memory\MemoryWriteService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -53,6 +54,7 @@ class BotTickCommand extends Command
         private readonly RotationalGridLimitOrderManager $gridLimitOrders,
         private readonly EntityManagerInterface $em,
         private readonly ProfileContext        $profileContext,
+        private readonly MemoryWriteService    $memoryWrite,
     ) {
         parent::__construct();
     }
@@ -578,6 +580,24 @@ class BotTickCommand extends Command
 
             if ($eventType !== null) {
                 $this->botHistory->log($eventType, $payload);
+
+                if (($eventType === 'close_full' || $eventType === 'close_partial') && $this->memoryWrite->isWriteEnabled()) {
+                    $profileId = $this->profileContext->getActiveProfileId();
+                    if ($profileId !== null) {
+                        $profile = $this->em->getRepository(TradingProfile::class)->find($profileId);
+                        if ($profile instanceof TradingProfile) {
+                            $this->memoryWrite->createTradeMemory(
+                                $profile,
+                                $symbol,
+                                $side,
+                                $position,
+                                $realizedEstimate,
+                                $eventType,
+                                $d['reason'] ?? null
+                            );
+                        }
+                    }
+                }
 
                 if (!$ok && empty($result['skipped'])) {
                     $count = ($consecutiveFails[$symbol] ?? 0) + 1;

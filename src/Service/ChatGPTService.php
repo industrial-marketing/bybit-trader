@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\Service\Memory\MemoryRetrievalService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class ChatGPTService
@@ -22,6 +23,7 @@ class ChatGPTService
         private readonly BotHistoryService  $botHistory,
         private readonly AlertService       $alertService,
         private readonly CostEstimatorService $costEstimator,
+        private readonly MemoryRetrievalService $memoryRetrieval,
     ) {}
 
     private function log(string $message): void
@@ -282,8 +284,20 @@ JSON;
             ? sprintf("⚠️ DATA FRESHNESS: %.1fs old. Factor into confidence.\n", $dataFreshnessSec)
             : '';
 
+        $memoryBlock = '';
+        if ($this->memoryRetrieval->isEnabled()) {
+            $queryText = "{$symbol} {$position['side']} position. {$hist}";
+            $strategies = $this->settingsService->getStrategiesSettings();
+            $maxTokens = (int)($strategies['memory_max_tokens'] ?? 800);
+            $scored = $this->memoryRetrieval->findForCurrentContext($queryText, $symbol);
+            $memoryBlock = $this->memoryRetrieval->buildMemoryPromptBlock($scored, $maxTokens);
+        }
+
         $prompt = "TRADING TIMEFRAME: {$tfLabel}. Single position analysis.\n";
         $prompt .= $freshnessNote;
+        if ($memoryBlock !== '') {
+            $prompt .= $memoryBlock;
+        }
         $prompt .= "POSITION:\n{$line}\n\n";
         $prompt .= "BOT HISTORY:\n{$historyContext}\nAveraged recently: {$averagedList}\n\n";
         $prompt .= "RULES: Edge must exceed costs×2. AVERAGE_IN only if NOT in averaged list + regime!=chop. CLOSE_PARTIAL fraction 0.1–0.5.\n\n";

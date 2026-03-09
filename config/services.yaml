@@ -23,3 +23,10 @@ services:
     App\Service\Storage\CircuitBreakerStorageInterface: '@App\Service\Storage\CircuitBreakerStorage'
     App\Service\Storage\BotHistoryStorageInterface: '@App\Service\Storage\BotHistoryStorage'
     App\Service\Storage\BotRunStorageInterface: '@App\Service\Storage\BotRunStorage'
+
+    App\Service\Memory\QdrantClientService:
+        arguments:
+            $host: '%env(default:localhost:QDRANT_HOST)%'
+            $port: '%env(default:6333:int:QDRANT_PORT)%'
+            $collection: '%env(default:bybit_memory:QDRANT_COLLECTION)%'
+            $apiKey: '%env(default::QDRANT_API_KEY)%'

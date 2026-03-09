@@ -154,6 +154,10 @@ function loadSettings() {
                 $('#strat-allow-avg').prop('checked', rules.allow_average_in !== false);
                 $('#strat-block-avg-chop').prop('checked', rules.average_in_block_in_chop !== false);
                 $('#strat-prefer-trend').prop('checked', rules.prefer_be_in_trend !== false);
+                $('#strat-memory-enabled').prop('checked', !!data.strategies.memory_enabled);
+                $('#strat-memory-write').prop('checked', !!data.strategies.memory_write_enabled);
+                $('#strat-memory-top-k').val(data.strategies.memory_top_k || 5);
+                $('#strat-memory-lookback').val(data.strategies.memory_lookback_days || 90);
             }
 
             // Alerts settings
@@ -384,7 +388,11 @@ function saveStrategiesSettings() {
                 allow_average_in: $('#strat-allow-avg').is(':checked'),
                 average_in_block_in_chop: $('#strat-block-avg-chop').is(':checked'),
                 prefer_be_in_trend: $('#strat-prefer-trend').is(':checked')
-            }
+            },
+            memory_enabled: $('#strat-memory-enabled').is(':checked'),
+            memory_write_enabled: $('#strat-memory-write').is(':checked'),
+            memory_top_k: parseInt($('#strat-memory-top-k').val() || '5', 10),
+            memory_lookback_days: parseInt($('#strat-memory-lookback').val() || '90', 10)
         }
     };
     $.ajax({ url: '/api/settings', method: 'POST', contentType: 'application/json', data: JSON.stringify(settings) })
