@@ -1,0 +1,148 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Memory — Admin — Bybit Trader{% endblock %}
+
+{% block content %}
+<div class="admin-page">
+    <div class="dashboard-header" style="margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <h2><i class="bi bi-cpu-fill"></i> Long-term Memory</h2>
+        <nav style="display:flex; gap:12px; flex-wrap:wrap;">
+            <a href="{{ path('admin_dashboard') }}" class="btn-secondary">Dashboard</a>
+            <a href="{{ path('admin_users') }}" class="btn-secondary">Users</a>
+            <a href="{{ path('admin_profiles') }}" class="btn-secondary">Profiles</a>
+            <a href="{{ path('admin_memory') }}" class="btn-primary">Memory</a>
+        </nav>
+    </div>
+
+    <p style="margin-bottom:20px; color:var(--muted); font-size:0.9rem;">
+        <i class="bi bi-info-circle"></i> Memory entries from Qdrant. Trade, decision, daily summary, insight.
+        Run <code>app:memory-daily-reflection</code> daily via cron for summaries.
+    </p>
+
+    <div style="background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:20px;">
+        <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;">
+            <div>
+                <label style="font-size:0.8rem; color:var(--muted); display:block; margin-bottom:4px;">Profile</label>
+                <select id="mem-filter-profile" style="padding:8px 12px; border-radius:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); min-width:160px;">
+                    <option value="">All</option>
+                    {% for p in profiles %}
+                    <option value="{{ p.id }}">{{ p.name }} ({{ p.id }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label style="font-size:0.8rem; color:var(--muted); display:block; margin-bottom:4px;">Symbol</label>
+                <input type="text" id="mem-filter-symbol" placeholder="BTCUSDT" style="padding:8px 12px; border-radius:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); width:100px;">
+            </div>
+            <div>
+                <label style="font-size:0.8rem; color:var(--muted); display:block; margin-bottom:4px;">Type</label>
+                <select id="mem-filter-type" style="padding:8px 12px; border-radius:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); min-width:120px;">
+                    <option value="">All</option>
+                    <option value="trade">trade</option>
+                    <option value="decision">decision</option>
+                    <option value="daily_summary">daily_summary</option>
+                    <option value="insight">insight</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-size:0.8rem; color:var(--muted); display:block; margin-bottom:4px;">Date from</label>
+                <input type="date" id="mem-filter-date-from" style="padding:8px 12px; border-radius:8px; background:var(--bg); border:1px solid var(--border); color:var(--text);">
+            </div>
+            <div>
+                <label style="font-size:0.8rem; color:var(--muted); display:block; margin-bottom:4px;">Date to</label>
+                <input type="date" id="mem-filter-date-to" style="padding:8px 12px; border-radius:8px; background:var(--bg); border:1px solid var(--border); color:var(--text);">
+            </div>
+            <button type="button" id="mem-filter-apply" class="btn-primary"><i class="bi bi-search"></i> Load</button>
+            <button type="button" id="mem-daily-reflection-btn" class="btn-secondary" title="Run daily reflection now"><i class="bi bi-arrow-repeat"></i> Daily Reflection</button>
+        </div>
+    </div>
+
+    <div id="mem-loading" style="display:none; padding:24px; text-align:center; color:var(--muted);">
+        <i class="bi bi-hourglass-split"></i> Loading…
+    </div>
+    <div id="mem-error" style="display:none; padding:16px; background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.4); border-radius:8px; color:var(--negative); margin-bottom:16px;"></div>
+    <div id="mem-table-wrap" style="background:var(--panel); border:1px solid var(--border); border-radius:12px; overflow:hidden;">
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr style="background:rgba(0,0,0,0.2); border-bottom:1px solid var(--border);">
+                    <th style="padding:12px 16px; text-align:left; font-size:0.85rem;">Profile</th>
+                    <th style="padding:12px 16px; text-align:left; font-size:0.85rem;">Symbol</th>
+                    <th style="padding:12px 16px; text-align:left; font-size:0.85rem;">Type</th>
+                    <th style="padding:12px 16px; text-align:left; font-size:0.85rem;">Content</th>
+                    <th style="padding:12px 16px; text-align:left; font-size:0.85rem;">Created</th>
+                </tr>
+            </thead>
+            <tbody id="mem-tbody">
+                <tr><td colspan="5" style="padding:24px; text-align:center; color:var(--muted);">Click Load to fetch memory entries</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+$(function() {
+    var profileNames = {{ profile_names|json_encode|raw }};
+    var profileMap = {};
+    profileNames.forEach(function(p) { profileMap[p.id] = p.name; });
+
+    function loadMemory() {
+        $('#mem-loading').show();
+        $('#mem-error').hide();
+        var params = { limit: 50, page: 0 };
+        var pf = $('#mem-filter-profile').val();
+        if (pf) params.profile_id = pf;
+        var sym = $('#mem-filter-symbol').val();
+        if (sym) params.symbol = sym;
+        var ty = $('#mem-filter-type').val();
+        if (ty) params.type = ty;
+        var df = $('#mem-filter-date-from').val();
+        if (df) params.date_from = df;
+        var dt = $('#mem-filter-date-to').val();
+        if (dt) params.date_to = dt;
+
+        $.get('/api/memory', params)
+            .done(function(r) {
+                var items = r.items || [];
+                var html = '';
+                if (items.length === 0) {
+                    html = '<tr><td colspan="5" style="padding:24px; text-align:center; color:var(--muted);">No entries</td></tr>';
+                } else {
+                    items.forEach(function(it) {
+                        var content = (it.text_content || '').substring(0, 120);
+                        if ((it.text_content || '').length > 120) content += '…';
+                        var created = (it.created_at || '').replace('T', ' ').substring(0, 19);
+                        html += '<tr style="border-bottom:1px solid var(--border);">' +
+                            '<td style="padding:12px 16px; font-size:0.85rem;">' + (profileMap[it.profile_id] || it.profile_id) + '</td>' +
+                            '<td style="padding:12px 16px; font-size:0.85rem;">' + (it.symbol || '—') + '</td>' +
+                            '<td style="padding:12px 16px; font-size:0.85rem;"><span style="font-size:0.75rem; padding:2px 6px; border-radius:4px; background:rgba(245,158,11,0.2);">' + (it.memory_type || '') + '</span></td>' +
+                            '<td style="padding:12px 16px; font-size:0.85rem; max-width:400px;" title="' + (it.text_content || '').replace(/"/g, '&quot;') + '">' + content + '</td>' +
+                            '<td style="padding:12px 16px; font-size:0.8rem; color:var(--muted);">' + created + '</td></tr>';
+                    });
+                }
+                $('#mem-tbody').html(html);
+            })
+            .fail(function(xhr) {
+                $('#mem-error').text('Error: ' + (xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : xhr.statusText)).show();
+                $('#mem-tbody').html('<tr><td colspan="5" style="padding:24px; text-align:center; color:var(--negative);">Load failed</td></tr>');
+            })
+            .always(function() { $('#mem-loading').hide(); });
+    }
+
+    $('#mem-filter-apply').on('click', loadMemory);
+
+    $('#mem-daily-reflection-btn').on('click', function() {
+        var $btn = $(this);
+        $btn.prop('disabled', true);
+        $.ajax({ url: '/api/memory/daily-reflection', method: 'POST', contentType: 'application/json', data: JSON.stringify({}) })
+            .done(function(r) {
+                if (r.ok) {
+                    if (window.showToast) showToast('Daily reflection: ' + (r.result && r.result.written) + ' summaries written', 'info');
+                    loadMemory();
+                }
+            })
+            .fail(function() { if (window.showToast) showToast('Daily reflection failed', 'error'); })
+            .always(function() { $btn.prop('disabled', false); });
+    });
+});
+</script>
+{% endblock %}

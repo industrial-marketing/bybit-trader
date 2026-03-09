@@ -109,6 +109,29 @@ class MemoryWriteService
     }
 
     /**
+     * Create daily summary memory (aggregated from day's trades/decisions).
+     */
+    public function createDailySummaryMemory(
+        TradingProfile $profile,
+        string $summaryText,
+        array $jsonPayload = [],
+        ?string $symbol = null
+    ): bool {
+        if (!$this->isWriteEnabled() || !$this->qdrant->isConfigured()) {
+            return false;
+        }
+
+        return $this->persistMemory(
+            $profile,
+            'daily_summary',
+            $summaryText,
+            array_merge(['type' => 'daily_summary'], $jsonPayload),
+            $symbol,
+            0.85
+        );
+    }
+
+    /**
      * Create insight/heuristic memory.
      */
     public function createInsightMemory(

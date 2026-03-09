@@ -41,7 +41,7 @@
 
 Конфиг (`.env`): `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_COLLECTION`, `QDRANT_API_KEY` (опционально)
 
-**Запуск Qdrant локально:** `docker run -p 6333:6333 qdrant/qdrant`
+**Запуск Qdrant:** `docker-compose up -d qdrant` или `docker run -p 6333:6333 qdrant/qdrant`
 
 ### 2. Сервисы
 
@@ -56,7 +56,7 @@
 
 1. **После close_full / close_partial** (BotTickCommand) → MemoryWriteService.createTradeMemory (если memory_write_enabled)
 2. **Перед LLM call** (ChatGPTService) → MemoryRetrievalService.findRelevantMemories → добавить блок в prompt (если memory_enabled)
-3. **Cron daily** → DailyReflectionService.run()
+3. **Cron daily** → `php bin/console app:memory-daily-reflection` (опционально `--profile-id=1`)
 
 ---
 
@@ -70,8 +70,8 @@
 - [x] Запись trade memory при close_full/close_partial
 - [x] Retrieval + блок в prompt перед manageSinglePosition
 - [x] UI: Memory toggles в Settings → Strategy Signals
-- [ ] Daily reflection cron (Фаза 3)
-- [ ] UI Memory tab (Фаза 4)
+- [x] Daily reflection cron (Фаза 3): `app:memory-daily-reflection`
+- [x] UI Memory tab (Фаза 4): Admin → Memory
 
 ---
 

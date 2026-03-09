@@ -173,6 +173,67 @@ class QdrantClientService
         }
     }
 
+    /**
+     * Scroll points with filter. For listing memory entries.
+     *
+     * @param array{profile_id?: int, memory_type?: string[], symbol?: string, created_at_gte?: string, created_at_lte?: string} $filter
+     * @return array{points: array<int, array{id: string, payload: array}>, next_offset: string|int|null}
+     */
+    public function scroll(array $filter = [], int $limit = 100, string|int|null $offset = null): array
+    {
+        if (!$this->isConfigured()) {
+            return ['points' => [], 'next_offset' => null];
+        }
+
+        $must = [];
+        if (isset($filter['profile_id'])) {
+            $must[] = ['key' => 'profile_id', 'match' => ['value' => (int) $filter['profile_id']]];
+        }
+        if (!empty($filter['memory_type'])) {
+            $must[] = ['key' => 'memory_type', 'match' => ['any' => $filter['memory_type']]];
+        }
+        if (isset($filter['symbol']) && $filter['symbol'] !== '') {
+            $must[] = ['key' => 'symbol', 'match' => ['any' => [$filter['symbol'], '']]];
+        }
+        if (isset($filter['created_at_gte'])) {
+            $must[] = ['key' => 'created_at', 'range' => ['gte' => $filter['created_at_gte']]];
+        }
+        if (isset($filter['created_at_lte'])) {
+            $must[] = ['key' => 'created_at', 'range' => ['lte' => $filter['created_at_lte']]];
+        }
+
+        $body = ['limit' => $limit, 'with_payload' => true, 'with_vector' => false];
+        if (!empty($must)) {
+            $body['filter'] = ['must' => $must];
+        }
+        if ($offset !== null) {
+            $body['offset'] = $offset;
+        }
+
+        $url = $this->baseUrl() . '/collections/' . urlencode($this->collection) . '/points/scroll';
+        $headers = $this->headers();
+
+        try {
+            $response = $this->httpClient->request('POST', $url, [
+                'headers' => $headers['headers'] ?? [],
+                'json' => $body,
+                'timeout' => 60,
+            ]);
+            $data = $response->toArray(false);
+            $points = [];
+            foreach ($data['result']['points'] ?? [] as $p) {
+                $points[] = [
+                    'id' => $p['id'] ?? '',
+                    'payload' => $p['payload'] ?? [],
+                ];
+            }
+            $nextOffset = $data['result']['next_page_offset'] ?? null;
+            return ['points' => $points, 'next_offset' => $nextOffset];
+        } catch (\Throwable) {
+            return ['points' => [], 'next_offset' => null];
+        }
+    }
+
     private function baseUrl(): string
     {
         $host = trim($this->host);

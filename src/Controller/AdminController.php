@@ -7,6 +7,7 @@ namespace App\Controller;
 use App\Entity\TradingProfile;
 use App\Entity\User;
 use Doctrine\ORM\EntityManagerInterface;
+use App\Service\Memory\MemoryListService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -113,5 +114,24 @@ class AdminController extends AbstractController
 
         $this->addFlash('success', "Profile «{$profile->getName()}» rejected (bot will not run).");
         return $this->redirectToRoute('admin_profiles');
+    }
+
+    #[Route('/memory', name: 'admin_memory', methods: ['GET'])]
+    public function memory(): Response
+    {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
+        $profiles = $this->em->getRepository(TradingProfile::class)->findBy(
+            [],
+            ['id' => 'DESC'],
+            limit: 200
+        );
+
+        $profileNames = array_map(fn ($p) => ['id' => $p->getId(), 'name' => $p->getName()], $profiles);
+
+        return $this->render('admin/memory.html.twig', [
+            'profiles' => $profiles,
+            'profile_names' => $profileNames,
+        ]);
     }
 }

@@ -17,6 +17,9 @@ use App\Service\StrategyProfileService;
 use App\Service\PendingActionsService;
 use App\Service\PositionLockService;
 use App\Service\RiskGuardService;
+use App\Service\Memory\DailyReflectionService;
+use App\Service\Memory\MemoryListService;
+use App\Service\Memory\MemoryRetrievalService;
 use App\Service\RotationalGridLimitOrderManager;
 use App\Service\RotationalGridService;
 use App\Service\SettingsService;
@@ -47,6 +50,9 @@ class ApiController extends AbstractController
         private readonly PnlStatisticsService  $pnlStats,
         private readonly RotationalGridService $rotationalGrid,
         private readonly RotationalGridLimitOrderManager $gridLimitOrders,
+        private readonly MemoryListService $memoryList,
+        private readonly MemoryRetrievalService $memoryRetrieval,
+        private readonly DailyReflectionService $dailyReflection,
     ) {}
 
     // ── Positions / orders / trades ───────────────────────────────
@@ -966,5 +972,78 @@ class ApiController extends AbstractController
     public function testChatGPT(): JsonResponse
     {
         return $this->json($this->chatGPTService->testConnection());
+    }
+
+    // ── Memory (admin / long-term memory) ────────────────────────────────
+
+    #[Route('/memory', name: 'api_memory_list', methods: ['GET'])]
+    public function getMemoryList(Request $request): JsonResponse
+    {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
+        $filters = [];
+        if ($request->query->has('profile_id')) {
+            $filters['profile_id'] = (int) $request->query->get('profile_id');
+        }
+        if ($request->query->has('symbol') && $request->query->get('symbol') !== '') {
+            $filters['symbol'] = $request->query->get('symbol');
+        }
+        if ($request->query->has('type') && $request->query->get('type') !== '') {
+            $filters['memory_type'] = $request->query->get('type');
+        }
+        if ($request->query->has('date_from')) {
+            $filters['date_from'] = $request->query->get('date_from');
+        }
+        if ($request->query->has('date_to')) {
+            $filters['date_to'] = $request->query->get('date_to');
+        }
+
+        $limit = min(200, max(10, (int) ($request->query->get('limit') ?? 50)));
+        $page = max(0, (int) ($request->query->get('page') ?? 0));
+
+        $items = $this->memoryList->list($filters, $limit, $page);
+        return $this->json(['items' => $items, 'count' => count($items)]);
+    }
+
+    #[Route('/memory/search', name: 'api_memory_search', methods: ['GET'])]
+    public function searchMemory(Request $request): JsonResponse
+    {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
+        $q = trim((string) ($request->query->get('q') ?? ''));
+        $profileId = $request->query->has('profile_id') ? (int) $request->query->get('profile_id') : null;
+        $symbol = $request->query->get('symbol') ?: null;
+
+        if ($q === '') {
+            return $this->json(['items' => []]);
+        }
+
+        $scored = $profileId !== null
+            ? $this->memoryRetrieval->findRelevantMemories($profileId, $q, $symbol, 20)
+            : [];
+
+        if ($profileId === null) {
+            return $this->json(['items' => [], 'message' => 'profile_id required for semantic search']);
+        }
+
+        $items = array_map(fn ($s) => [
+            'symbol' => $s['entry']->getSymbol(),
+            'text_content' => $s['entry']->getTextContent(),
+            'score' => $s['score'],
+        ], $scored);
+
+        return $this->json(['items' => $items]);
+    }
+
+    #[Route('/memory/daily-reflection', name: 'api_memory_daily_reflection', methods: ['POST'])]
+    public function triggerDailyReflection(Request $request): JsonResponse
+    {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
+        $data = json_decode($request->getContent(), true) ?? [];
+        $profileId = isset($data['profile_id']) ? (int) $data['profile_id'] : null;
+
+        $result = $this->dailyReflection->run($profileId);
+        return $this->json(['ok' => true, 'result' => $result]);
     }
 }
