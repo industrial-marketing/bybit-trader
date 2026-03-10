@@ -1291,10 +1291,25 @@ input[readonly] { opacity: 0.75; cursor: default; }
     margin-bottom: 8px;
 }
 .position-card-header strong { font-size: 14px; }
+.position-card-side-lev {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.position-card-lev {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+}
 .position-card-pnl {
     margin-left: auto;
     font-weight: 700;
     font-size: 14px;
+}
+.position-card-pnl-pct {
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.9;
 }
 .position-card-body {
     display: flex;
@@ -1313,9 +1328,20 @@ input[readonly] { opacity: 0.75; cursor: default; }
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 8px;
     padding-top: 8px;
     border-top: 1px solid var(--border);
+}
+.position-card-liq {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: rgba(245, 158, 11, 0.12);
+    border-radius: var(--radius-xs);
+    color: var(--warning);
+    font-weight: 600;
+    margin-left: auto;
+    margin-right: 4px;
 }
 .position-card-actions {
     display: flex;

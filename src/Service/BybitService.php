@@ -1892,6 +1892,7 @@ class BybitService
                 'entryPrice'       => $pos['avgPrice']      ?? '0',
                 'markPrice'        => $pos['markPrice']     ?? '0',
                 'unrealizedPnl'    => $pos['unrealisedPnl'] ?? '0',
+                'curRealisedPnl'   => $pos['curRealisedPnl'] ?? null,  // realised PnL for current holding (incl. funding paid)
                 'stopLoss'         => $pos['stopLoss']      ?? null,
                 'takeProfit'       => $pos['takeProfit']    ?? null,
                 'liquidationPrice' => $pos['liqPrice']      ?? null,

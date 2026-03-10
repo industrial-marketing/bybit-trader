@@ -411,6 +411,11 @@ function loadPositionsAndOrders() {
             const botStatusHtml = locked
                 ? `<span class="lock-badge"><i class="bi bi-lock-fill"></i> LOCKED</span>`
                 : `<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Allowed</span>`;
+            const curRealised = position.curRealisedPnl != null ? parseFloat(position.curRealisedPnl) : null;
+            const fundingText = curRealised != null && !isNaN(curRealised) ? (curRealised >= 0 ? '+' : '') + curRealised.toFixed(2) + ' USDT' : '-';
+            const fundingClass = curRealised != null && curRealised < 0 ? 'loss' : (curRealised != null && curRealised > 0 ? 'profit' : '');
+            const pnlPct = margin > 0 ? (pnl / margin) * 100 : null;
+            const pnlPctText = pnlPct != null && !isNaN(pnlPct) ? (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(1) + '%' : '';
 
             html += `
                 <tr data-symbol="${position.symbol}" data-side="${position.side}" data-locked="${locked ? '1' : '0'}" class="position-row">
@@ -442,19 +447,21 @@ function loadPositionsAndOrders() {
                 <div class="position-card" data-symbol="${position.symbol}" data-side="${position.side}" data-locked="${locked ? '1' : '0'}">
                     <div class="position-card-header">
                         <strong>${position.symbol}</strong>
-                        ${sideBadge}
-                        <span class="position-card-pnl ${pnlClass}">${pnlSign}${pnl.toFixed(2)} USDT</span>
+                        <span class="position-card-side-lev">${sideBadge}<span class="position-card-lev">${levText}</span></span>
+                        <span class="position-card-pnl ${pnlClass}">${pnlSign}${pnl.toFixed(2)} USDT${pnlPctText ? ` <span class="position-card-pnl-pct">(${pnlPctText})</span>` : ''}</span>
                     </div>
                     <div class="position-card-body">
                         <span>Size: ${position.size}</span>
+                        <span>Margin: ${margin ? margin.toFixed(2) + ' USDT' : '-'}</span>
                         <span>Entry: ${entryPrice ? formatPrice(entryPrice) : '-'}</span>
-                        <span>Lev: ${levText}</span>
-                        <span>Liq: ${liqText}</span>
+                        <span>Current: ${position.markPrice ? formatPrice(position.markPrice) : '-'}</span>
+                        <span class="position-card-funding ${fundingClass}" title="Realised PnL for current holding (incl. funding paid)">Funding: ${fundingText}</span>
                         <span>Opened: ${position.openedAt}</span>
                         <span class="position-card-why">${whyHtml}</span>
                     </div>
                     <div class="position-card-footer">
                         <span class="bot-status-cell">${botStatusHtml}</span>
+                        <span class="position-card-liq" title="Liquidation">Liq: ${liqText}</span>
                         <div class="position-card-actions">
                             <button type="button" class="btn-small btn-icon-lock btn-pos-lock" title="${lockLabel}"><i class="bi ${lockIcon}"></i></button>
                             <button type="button" class="btn-small btn-icon-danger btn-pos-close" title="Close"><i class="bi bi-x-circle"></i></button>
