@@ -56,7 +56,6 @@
                     onerror="this.style.background='transparent';this.src='';this.alt='BYBIT TRADER';this.style.fontSize='16px';this.style.fontWeight='700';this.style.color='#F59E0B';"
                 >
             </a>
-            <button type="button" class="navbar-burger" id="navbar-burger" aria-label="Menu"><span></span><span></span><span></span></button>
             <ul class="navbar-menu" id="navbar-menu">
                 <li>
                     <a href="/app?page=dashboard" title="Dashboard">
@@ -145,22 +144,6 @@
         </div>
     </footer>
     <script>
-    (function() {
-        var burger = document.getElementById('navbar-burger');
-        var menu = document.getElementById('navbar-menu');
-        if (burger && menu) {
-            burger.addEventListener('click', function() {
-                burger.classList.toggle('open');
-                menu.classList.toggle('open');
-            });
-            document.addEventListener('click', function(e) {
-                if (menu.classList.contains('open') && !menu.contains(e.target) && !burger.contains(e.target)) {
-                    burger.classList.remove('open');
-                    menu.classList.remove('open');
-                }
-            });
-        }
-    })();
     (function() {
         var $btn = document.getElementById('profile-dropdown-btn');
         var $menu = document.getElementById('profile-dropdown-menu');

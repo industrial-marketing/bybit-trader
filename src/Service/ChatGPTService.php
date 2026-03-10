@@ -291,6 +291,9 @@ JSON;
             $maxTokens = (int)($strategies['memory_max_tokens'] ?? 800);
             $scored = $this->memoryRetrieval->findForCurrentContext($queryText, $symbol);
             $memoryBlock = $this->memoryRetrieval->buildMemoryPromptBlock($scored, $maxTokens);
+            if ($memoryBlock !== '') {
+                $this->log(sprintf('Memory: %d cases used for %s %s', count($scored), $symbol, $position['side'] ?? ''));
+            }
         }
 
         $prompt = "TRADING TIMEFRAME: {$tfLabel}. Single position analysis.\n";

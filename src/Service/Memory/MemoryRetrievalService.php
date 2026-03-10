@@ -100,6 +100,7 @@ class MemoryRetrievalService
 
     /**
      * Build compact memory block for LLM prompt.
+     * Splits into "Similar successful cases" and "Similar failed cases" when outcome is known.
      *
      * @param array<array{entry: MemoryEntryDto, score: float}> $scoredMemories
      */
@@ -109,26 +110,43 @@ class MemoryRetrievalService
             return '';
         }
 
-        $lines = [];
+        $successful = [];
+        $failed = [];
+        $neutral = [];
         $approxChars = 0;
-        $limit = $maxTokens * 4; // rough 4 chars per token
+        $limit = (int) ($maxTokens * 2); // split between blocks
 
         foreach ($scoredMemories as $item) {
             $entry = $item['entry'];
             $sym = $entry->getSymbol();
-            $text = '- [' . ($sym ?? 'general') . '] ' . $entry->getTextContent();
-            $text = mb_substr($text, 0, 200);
-            if ($approxChars + mb_strlen($text) > $limit) {
+            $line = '- [' . ($sym ?? 'general') . '] ' . mb_substr($entry->getTextContent(), 0, 200);
+            $outcome = $entry->getOutcome();
+
+            if ($approxChars + mb_strlen($line) > $limit * 2) {
                 break;
             }
-            $lines[] = $text;
-            $approxChars += mb_strlen($text);
+
+            if ($outcome === 'good') {
+                $successful[] = $line;
+            } elseif ($outcome === 'bad') {
+                $failed[] = $line;
+            } else {
+                $neutral[] = $line;
+            }
+            $approxChars += mb_strlen($line);
         }
 
-        if (empty($lines)) {
-            return '';
+        $parts = [];
+        if (!empty($failed)) {
+            $parts[] = "SIMILAR FAILED CASES (avoid repeating):\n" . implode("\n", array_slice($failed, 0, 3)) . "\n";
+        }
+        if (!empty($successful)) {
+            $parts[] = "SIMILAR SUCCESSFUL CASES:\n" . implode("\n", array_slice($successful, 0, 3)) . "\n";
+        }
+        if (!empty($neutral) && count($parts) < 2) {
+            $parts[] = "RELEVANT HISTORICAL CASES:\n" . implode("\n", array_slice($neutral, 0, 3)) . "\n";
         }
 
-        return "RELEVANT HISTORICAL CASES:\n" . implode("\n", $lines) . "\n\n";
+        return empty($parts) ? '' : implode("\n", $parts) . "\n";
     }
 }

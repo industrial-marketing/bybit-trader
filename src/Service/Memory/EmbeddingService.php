@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Service\Memory;
 
+use App\Service\LogSanitizer;
 use App\Service\SettingsService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
@@ -57,6 +58,7 @@ class EmbeddingService
             $embedding = $data['data'][0]['embedding'] ?? null;
             return is_array($embedding) ? array_map('floatval', $embedding) : null;
         } catch (\Throwable $e) {
+            LogSanitizer::log('Embedding', 'API error: ' . $e->getMessage(), $this->settingsService);
             return null;
         }
     }

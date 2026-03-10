@@ -402,6 +402,7 @@ class BotTickCommand extends Command
 
             if ($this->positionLockService->isLocked($symbol, $side)) {
                 $io->writeln("  <comment>[SKIP locked]</comment> {$symbol} {$side} → {$action}");
+                $this->writeDecisionMemory($symbol, $action, $traceFields['reason'] ?? '', (int)($traceFields['confidence'] ?? 0), false);
                 $managed[] = array_merge($traceFields, [
                     'symbol' => $symbol, 'side' => $side, 'action' => $action,
                     'ok' => false, 'skipped' => true, 'skip_reason' => 'locked',
@@ -411,6 +412,7 @@ class BotTickCommand extends Command
 
             if (!$this->riskGuard->isActionAllowed($symbol, $recentEvents)) {
                 $io->writeln("  <comment>[SKIP cooldown]</comment> {$symbol} {$side} → {$action}");
+                $this->writeDecisionMemory($symbol, $action, $traceFields['reason'] ?? '', (int)($traceFields['confidence'] ?? 0), false);
                 $managed[] = array_merge($traceFields, [
                     'symbol' => $symbol, 'side' => $side, 'action' => $action,
                     'ok' => false, 'skipped' => true, 'skip_reason' => 'cooldown',
@@ -421,6 +423,7 @@ class BotTickCommand extends Command
             // Rotational grid: add/unload handled by grid; skip LLM AVERAGE_IN / CLOSE_PARTIAL
             if (isset($rotationalSymbols["{$symbol}|{$side}"]) && in_array($action, ['AVERAGE_IN_ONCE', 'CLOSE_PARTIAL'], true)) {
                 $io->writeln("  <comment>[SKIP rotational]</comment> {$symbol} {$side} → {$action} (grid handles add/unload)");
+                $this->writeDecisionMemory($symbol, $action, $traceFields['reason'] ?? '', (int)($traceFields['confidence'] ?? 0), false);
                 $managed[] = array_merge($traceFields, [
                     'symbol' => $symbol, 'side' => $side, 'action' => $action,
                     'ok' => true, 'skipped' => true, 'skip_reason' => 'rotational_grid',
@@ -442,6 +445,7 @@ class BotTickCommand extends Command
                         'pnlAtDecision'     => $pnlAtDecision,
                     ]);
                     $io->writeln("  <comment>[CANARY → pending {$pndId}]</comment> {$symbol} {$side} → {$action}");
+                    $this->writeDecisionMemory($symbol, $action, $traceFields['reason'] ?? '', (int)($traceFields['confidence'] ?? 0), false);
                     $managed[] = array_merge($traceFields, [
                         'symbol' => $symbol, 'side' => $side, 'action' => $action,
                         'ok' => true, 'pending' => true, 'pending_id' => $pndId,
@@ -463,6 +467,7 @@ class BotTickCommand extends Command
                         'pnlAtDecision'     => $pnlAtDecision,
                     ]);
                     $io->writeln("  <comment>[PENDING {$pndId}]</comment> {$symbol} {$side} → {$action} (strict mode)");
+                    $this->writeDecisionMemory($symbol, $action, $traceFields['reason'] ?? '', (int)($traceFields['confidence'] ?? 0), false);
                     $managed[] = array_merge($traceFields, [
                         'symbol' => $symbol, 'side' => $side, 'action' => $action,
                         'ok' => true, 'pending' => true, 'pending_id' => $pndId,
@@ -489,6 +494,7 @@ class BotTickCommand extends Command
                 $edgeCheck = $this->costEstimator->checkMinimumEdge($edgeUsdt, $costEst['total_usdt']);
                 if (!$edgeCheck['ok']) {
                     $io->writeln("  <comment>[SKIP min_edge]</comment> {$symbol} {$side} → {$action} — edge {$edgeUsdt}\$ < costs×mult");
+                    $this->writeDecisionMemory($symbol, $action, $traceFields['reason'] ?? '', (int)($traceFields['confidence'] ?? 0), false);
                     $managed[] = array_merge($traceFields, [
                         'symbol' => $symbol, 'side' => $side, 'action' => $action,
                         'ok' => false, 'skipped' => true, 'skip_reason' => 'min_edge',
@@ -606,6 +612,9 @@ class BotTickCommand extends Command
                 }
             }
 
+            $executed = $result !== null && ($result['ok'] ?? false) && empty($result['skipped'] ?? true);
+            $this->writeDecisionMemory($symbol, $action, $traceFields['reason'] ?? '', (int)($traceFields['confidence'] ?? 0), $executed);
+
             $managed[] = $payload;
         }
 
@@ -699,5 +708,22 @@ class BotTickCommand extends Command
         ));
 
         return Command::SUCCESS;
+    }
+
+    private function writeDecisionMemory(string $symbol, string $action, string $reason, int $confidence, bool $executed): void
+    {
+        if (!$this->memoryWrite->isWriteEnabled()) {
+            return;
+        }
+        $profileId = $this->profileContext->getActiveProfileId();
+        if ($profileId === null) {
+            return;
+        }
+        $profile = $this->em->getRepository(TradingProfile::class)->find($profileId);
+        if (!$profile instanceof TradingProfile) {
+            return;
+        }
+        $rec = "{$action}: " . mb_substr($reason, 0, 150);
+        $this->memoryWrite->createDecisionMemory($profile, $symbol, $rec, (float) $confidence, $executed, null);
     }
 }
