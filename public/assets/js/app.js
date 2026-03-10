@@ -440,6 +440,24 @@ function loadPositionsAndOrders() {
                 </tr>
             `;
 
+            var posOrders = ordersBySymbol[position.symbol] || [];
+            var cardOrdersHtml = '';
+            if (posOrders.length > 0) {
+                var ordHtml = '<tr class="orders-sub-row"><td colspan="14" class="orders-cell"><div class="orders-inline"><span class="orders-label"><i class="bi bi-card-list"></i> Orders:</span>';
+                posOrders.forEach(function(ord) {
+                    var rawPrice = parseFloat(ord.price || 0);
+                    var rawTrig = ord.triggerPrice != null ? parseFloat(ord.triggerPrice) : null;
+                    var priceTxt = (rawPrice && !isNaN(rawPrice) && rawPrice !== 0) ? formatPrice(rawPrice) : ((rawTrig && !isNaN(rawTrig)) ? formatPrice(rawTrig) : '-');
+                    var sideTxt = (ord.side || '').toUpperCase() === 'BUY' ? 'Long' : 'Short';
+                    var sideCl = sideTxt === 'Long' ? 'profit' : 'loss';
+                    ordHtml += ` <span class="order-chip ${sideCl}">${ord.orderType} @ ${priceTxt} · ${parseFloat(ord.qty || 0).toFixed(4)} (${ord.status})</span>`;
+                    cardOrdersHtml += ` <span class="order-chip ${sideCl}">${ord.orderType} @ ${priceTxt} · ${parseFloat(ord.qty || 0).toFixed(4)} (${ord.status})</span>`;
+                });
+                ordHtml += '</div></td></tr>';
+                html += ordHtml;
+                delete ordersBySymbol[position.symbol];
+            }
+
             cardsHtml += `
                 <div class="position-card" data-symbol="${position.symbol}" data-side="${position.side}" data-locked="${locked ? '1' : '0'}">
                     <div class="position-card-header">
@@ -455,6 +473,7 @@ function loadPositionsAndOrders() {
                         <span>Opened: ${position.openedAt}</span>
                         <span class="position-card-why">${whyHtml}</span>
                     </div>
+                    ${posOrders.length > 0 ? `<div class="position-card-orders"><span class="orders-label"><i class="bi bi-card-list"></i> Orders:</span>${cardOrdersHtml}</div>` : ''}
                     <div class="position-card-footer">
                         <span class="bot-status-cell">${botStatusHtml}</span>
                         <span class="position-card-liq" title="Liquidation">Liq: ${liqText}</span>
@@ -465,22 +484,6 @@ function loadPositionsAndOrders() {
                     </div>
                 </div>
             `;
-
-            var posOrders = ordersBySymbol[position.symbol] || [];
-            if (posOrders.length > 0) {
-                var ordHtml = '<tr class="orders-sub-row"><td colspan="14" class="orders-cell"><div class="orders-inline"><span class="orders-label"><i class="bi bi-card-list"></i> Orders:</span>';
-                posOrders.forEach(function(ord) {
-                    var rawPrice = parseFloat(ord.price || 0);
-                    var rawTrig = ord.triggerPrice != null ? parseFloat(ord.triggerPrice) : null;
-                    var priceTxt = (rawPrice && !isNaN(rawPrice) && rawPrice !== 0) ? formatPrice(rawPrice) : ((rawTrig && !isNaN(rawTrig)) ? formatPrice(rawTrig) : '-');
-                    var sideTxt = (ord.side || '').toUpperCase() === 'BUY' ? 'Long' : 'Short';
-                    var sideCl = sideTxt === 'Long' ? 'profit' : 'loss';
-                    ordHtml += ` <span class="order-chip ${sideCl}">${ord.orderType} @ ${priceTxt} · ${parseFloat(ord.qty || 0).toFixed(4)} (${ord.status})</span>`;
-                });
-                ordHtml += '</div></td></tr>';
-                html += ordHtml;
-                delete ordersBySymbol[position.symbol];
-            }
         });
 
         var orphanSymbols = Object.keys(ordersBySymbol);

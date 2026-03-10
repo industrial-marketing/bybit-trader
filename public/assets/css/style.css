@@ -1324,6 +1324,20 @@ input[readonly] { opacity: 0.75; cursor: default; }
     flex-basis: 100%;
     font-size: 11px;
 }
+.position-card-orders {
+    font-size: 11px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0;
+    margin-top: 4px;
+    border-top: 1px solid var(--border);
+}
+.position-card-orders .orders-label {
+    flex-shrink: 0;
+    margin-right: 4px;
+}
 .position-card-footer {
     display: flex;
     align-items: center;
