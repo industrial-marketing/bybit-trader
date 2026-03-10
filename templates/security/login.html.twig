@@ -141,6 +141,11 @@
         </a>
         <div style="text-align:center;color:var(--muted);font-size:0.85rem;margin-bottom:16px;">— or —</div>
 
+        {% if session_expired %}
+            <div class="alert-error" style="background:rgba(245,158,11,0.15);border-color:rgba(245,158,11,0.5);color:#F59E0B;">
+                Сессия истекла. Войдите снова.
+            </div>
+        {% endif %}
         {% if error %}
             <div class="alert-error">
                 {{ error.messageKey|trans(error.messageData, 'security') }}

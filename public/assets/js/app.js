@@ -19,12 +19,10 @@ function formatPrice(price) {
     return v.toFixed(2);
 }
 
-// Глобальный перехватчик 401 — перезагружаем страницу, браузер покажет Basic Auth диалог
+// Глобальный перехватчик 401 — сессия истекла, редирект на логин
 $(document).ajaxError(function(event, xhr) {
     if (xhr.status === 401) {
-        document.body.innerHTML = '<div style="font-family:sans-serif;text-align:center;padding:80px;color:#e05;">' +
-            '<h2>⚠️ Session expired or access denied</h2>' +
-            '<p>Please <a href="/">refresh the page</a> and enter your login and password.</p></div>';
+        window.location.href = '/login?reason=session_expired';
     }
 });
 
