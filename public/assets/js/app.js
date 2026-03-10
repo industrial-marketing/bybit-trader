@@ -487,6 +487,7 @@ function loadPositionsAndOrders() {
         });
 
         var orphanSymbols = Object.keys(ordersBySymbol);
+        var orphanCardHtml = '';
         if (orphanSymbols.length > 0) {
             var orphanHtml = '<tr class="orders-sub-row"><td colspan="14" class="orders-cell"><div class="orders-inline"><span class="orders-label"><i class="bi bi-card-list"></i> Other orders:</span>';
             orphanSymbols.forEach(function(sym) {
@@ -496,10 +497,15 @@ function loadPositionsAndOrders() {
                     var sideTxt = (ord.side || '').toUpperCase() === 'BUY' ? 'Long' : 'Short';
                     var sideCl = sideTxt === 'Long' ? 'profit' : 'loss';
                     orphanHtml += ' <span class="order-chip ' + sideCl + '">' + sym + ' ' + ord.orderType + ' @ ' + priceTxt + '</span>';
+                    orphanCardHtml += ' <span class="order-chip ' + sideCl + '">' + sym + ' ' + ord.orderType + ' @ ' + priceTxt + '</span>';
                 });
             });
             orphanHtml += '</div></td></tr>';
             html += orphanHtml;
+        }
+
+        if (orphanCardHtml) {
+            cardsHtml += '<div class="position-card-orders position-card-orders-orphan"><span class="orders-label"><i class="bi bi-card-list"></i> Other orders:</span>' + orphanCardHtml + '</div>';
         }
 
         $('#positions-table tbody').html(html);

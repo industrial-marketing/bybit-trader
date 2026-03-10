@@ -1338,6 +1338,13 @@ input[readonly] { opacity: 0.75; cursor: default; }
     flex-shrink: 0;
     margin-right: 4px;
 }
+.position-card-orders-orphan {
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: rgba(0,0,0,0.15);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
 .position-card-footer {
     display: flex;
     align-items: center;
