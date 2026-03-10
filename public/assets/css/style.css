@@ -682,6 +682,37 @@ td.num, th.num { text-align: right; }
 /* ── 13. Section / Dashboard Layout ──────────────────────────── */
 .section { margin-bottom: 32px; }
 
+/* ── Bot overview bar (compact stats on Bot page) ─────────────────── */
+.bot-overview-bar {
+    margin-bottom: 20px;
+}
+.bot-overview-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px 24px;
+    padding: 12px 16px;
+    background: rgba(0,0,0,0.12);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+.bot-overview-stats .bot-stat {
+    font-size: 13px;
+}
+.bot-overview-stats .bot-stat strong {
+    color: var(--muted);
+    font-weight: 500;
+    margin-right: 4px;
+}
+.bot-overview-actions {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+@media (max-width: 768px) {
+    .bot-overview-actions { margin-left: 0; margin-top: 4px; }
+}
+
 .dashboard-header {
     display: flex;
     justify-content: space-between;
@@ -1225,8 +1256,76 @@ input[readonly] { opacity: 0.75; cursor: default; }
     .navbar-menu a span.nav-label { display: none !important; }
     .navbar-menu a { padding: 8px 10px; }
 }
+/* ── Position cards (mobile only) ───────────────────────────────── */
+.positions-cards {
+    display: none; /* shown on mobile via media query */
+}
+.positions-table-wrap {
+    display: block;
+}
+.positions-cards-empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 20px;
+    font-size: 13px;
+}
+.position-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: background var(--transition), border-color var(--transition);
+}
+.position-card:last-child { margin-bottom: 0; }
+.position-card:hover {
+    background: rgba(255,255,255,0.03);
+    border-color: rgba(255,255,255,0.12);
+}
+.position-card-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-bottom: 8px;
+}
+.position-card-header strong { font-size: 14px; }
+.position-card-pnl {
+    margin-left: auto;
+    font-weight: 700;
+    font-size: 14px;
+}
+.position-card-body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+}
+.position-card-body span:not(.position-card-why) { white-space: nowrap; }
+.position-card-why {
+    flex-basis: 100%;
+    font-size: 11px;
+}
+.position-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+.position-card-actions {
+    display: flex;
+    gap: 6px;
+}
+
 @media (max-width: 768px) {
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .settings { max-width: 100%; }
     .dashboard-header { flex-direction: column; align-items: flex-start; }
+    .positions-table-wrap { display: none; }
+    .positions-cards { display: block; }
 }

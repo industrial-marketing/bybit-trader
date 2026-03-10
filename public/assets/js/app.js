@@ -56,12 +56,12 @@ $(document).ready(function() {
     });
 
     // Кнопка обновления
-    $('#refresh-btn').on('click', function() {
+    $(document).on('click', '.refresh-btn', function() {
         loadDashboard();
     });
 
     // Ручной запуск бота (тот же эндпоинт, что и по cron)
-    $('#bot-tick-btn').on('click', function() {
+    $(document).on('click', '.bot-tick-btn', function() {
         runBotTick();
     });
 
@@ -91,11 +91,11 @@ $(document).ready(function() {
     });
 
     // Ручное управление позициями
-    $('#positions-table').on('click', '.btn-pos-lock', function(e) {
+    $('#positions-wrapper').on('click', '.btn-pos-lock', function(e) {
         e.stopPropagation();
         const $btn = $(this);
         if ($btn.prop('disabled')) return;
-        const $row = $btn.closest('tr');
+        const $row = $btn.closest('tr, .position-card');
         const symbol = $row.data('symbol');
         const side = $row.data('side');
         if (!symbol || !side) return;
@@ -106,12 +106,12 @@ $(document).ready(function() {
         $btn.prop('disabled', true);
         $row.find('.btn-pos-lock i').removeClass('bi-lock-fill bi-unlock').addClass(newLocked ? 'bi-lock-fill' : 'bi-unlock');
         $row.find('.btn-pos-lock').attr('title', newLocked ? 'Unlock' : 'Lock');
-        const $botTd = $row.find('td').eq(11);
-        $botTd.find('.lock-badge').remove();
+        const $botCell = $row.find('.bot-status-cell');
+        $botCell.find('.lock-badge').remove();
         if (newLocked) {
-            $botTd.html('<span class="lock-badge"><i class="bi bi-lock-fill"></i> LOCKED</span>');
+            $botCell.html('<span class="lock-badge"><i class="bi bi-lock-fill"></i> LOCKED</span>');
         } else {
-            $botTd.html('<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Allowed</span>');
+            $botCell.html('<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Allowed</span>');
         }
         $row.attr('data-locked', newLocked ? '1' : '0').data('locked', newLocked ? '1' : '0');
 
@@ -141,8 +141,8 @@ $(document).ready(function() {
         });
     });
 
-    $('#positions-table').on('click', '.btn-pos-close', function() {
-        const $row = $(this).closest('tr');
+    $('#positions-wrapper').on('click', '.btn-pos-close', function() {
+        const $row = $(this).closest('tr, .position-card');
         const symbol = $row.data('symbol');
         const side = $row.data('side');
         if (!symbol || !side) return;
@@ -170,7 +170,7 @@ $(document).ready(function() {
         });
     });
 
-    $('#positions-table').on('click', 'tbody tr[data-symbol]', function(e) {
+    $('#positions-wrapper').on('click', 'tbody tr[data-symbol], .position-card[data-symbol]', function(e) {
         if ($(e.target).closest('button').length) return;
         const symbol = $(this).data('symbol');
         if (symbol) {
@@ -289,9 +289,12 @@ function loadPeriodPnl() {
             $('#key-today-pnl span').text(today).removeClass('profit loss').addClass(parseFloat(data.today || 0) >= 0 ? 'profit' : 'loss');
             $('#key-7d-pnl span').text(d7).removeClass('profit loss').addClass(parseFloat(data.pnl7d || 0) >= 0 ? 'profit' : 'loss');
             $('#key-all-pnl span').text(all).removeClass('profit loss').addClass(parseFloat(data.allTime || 0) >= 0 ? 'profit' : 'loss');
+            $('#bot-stat-today-pnl').text(today).removeClass('profit loss').addClass(parseFloat(data.today || 0) >= 0 ? 'profit' : 'loss');
+            $('#bot-stat-7d-pnl').text(d7).removeClass('profit loss').addClass(parseFloat(data.pnl7d || 0) >= 0 ? 'profit' : 'loss');
         })
         .fail(function() {
             $('#key-today-pnl span, #key-7d-pnl span, #key-all-pnl span').text('-').removeClass('profit loss');
+            $('#bot-stat-today-pnl, #bot-stat-7d-pnl').text('-').removeClass('profit loss');
         });
 }
 
@@ -366,8 +369,9 @@ function loadPositionsAndOrders() {
 
         if (positions.length === 0) {
             $('#positions-table tbody').html('<tr><td colspan="14" class="loading">No open positions</td></tr>');
+            $('#positions-cards').html('<div class="positions-cards-empty">No open positions</div>');
             $('#stat-margin-in-positions, #stat-margin-used, #stat-exposure').text('0 USDT');
-            $('#stat-open-positions-count').text('0');
+            $('#stat-open-positions-count, #bot-stat-positions').text('0');
             $('#stat-margin-card').hide();
             addPositionSymbolsToSelector([]);
             updateBotChartSymbolSelector([]);
@@ -377,6 +381,7 @@ function loadPositionsAndOrders() {
         let totalMargin = 0;
         let totalExposure = 0;
         let html = '';
+        let cardsHtml = '';
         positions.forEach(function(position) {
             const pnl = parseFloat(position.unrealizedPnl || 0);
             const pnlClass = pnl >= 0 ? 'profit' : 'loss';
@@ -421,7 +426,7 @@ function loadPositionsAndOrders() {
                     <td class="num ${pnlClass}">${pnlSign}${pnl.toFixed(2)}</td>
                     <td>${position.openedAt}</td>
                     <td class="why-cell">${whyHtml}</td>
-                    <td>${botStatusHtml}</td>
+                    <td class="bot-status-cell">${botStatusHtml}</td>
                     <td style="white-space:nowrap;">
                         <button type="button" class="btn-small btn-icon-lock btn-pos-lock" title="${lockLabel}">
                             <i class="bi ${lockIcon}"></i>
@@ -431,6 +436,31 @@ function loadPositionsAndOrders() {
                         </button>
                     </td>
                 </tr>
+            `;
+
+            cardsHtml += `
+                <div class="position-card" data-symbol="${position.symbol}" data-side="${position.side}" data-locked="${locked ? '1' : '0'}">
+                    <div class="position-card-header">
+                        <strong>${position.symbol}</strong>
+                        ${sideBadge}
+                        <span class="position-card-pnl ${pnlClass}">${pnlSign}${pnl.toFixed(2)} USDT</span>
+                    </div>
+                    <div class="position-card-body">
+                        <span>Size: ${position.size}</span>
+                        <span>Entry: ${entryPrice ? formatPrice(entryPrice) : '-'}</span>
+                        <span>Lev: ${levText}</span>
+                        <span>Liq: ${liqText}</span>
+                        <span>Opened: ${position.openedAt}</span>
+                        <span class="position-card-why">${whyHtml}</span>
+                    </div>
+                    <div class="position-card-footer">
+                        <span class="bot-status-cell">${botStatusHtml}</span>
+                        <div class="position-card-actions">
+                            <button type="button" class="btn-small btn-icon-lock btn-pos-lock" title="${lockLabel}"><i class="bi ${lockIcon}"></i></button>
+                            <button type="button" class="btn-small btn-icon-danger btn-pos-close" title="Close"><i class="bi bi-x-circle"></i></button>
+                        </div>
+                    </div>
+                </div>
             `;
 
             var posOrders = ordersBySymbol[position.symbol] || [];
@@ -467,17 +497,20 @@ function loadPositionsAndOrders() {
         }
 
         $('#positions-table tbody').html(html);
+        $('#positions-cards').html(cardsHtml);
         $('#stat-margin-in-positions').text(totalMargin.toFixed(2) + ' USDT');
         $('#stat-margin-used').text(totalMargin.toFixed(2) + ' USDT');
         $('#stat-exposure').text(totalExposure.toFixed(2) + ' USDT');
         $('#stat-open-positions-count').text(String(positions.length));
+        $('#bot-stat-positions').text(String(positions.length));
         $('#stat-margin-card').toggle(totalMargin > 0);
         addPositionSymbolsToSelector(positions);
         updateBotChartSymbolSelector(positions);
     }).fail(function() {
         $('#positions-table tbody').html('<tr><td colspan="14" class="loading">Error loading data</td></tr>');
+        $('#positions-cards').html('<div class="positions-cards-empty">Error loading data</div>');
         $('#stat-margin-in-positions, #stat-margin-used, #stat-exposure').text('-');
-        $('#stat-open-positions-count').text('-');
+        $('#stat-open-positions-count, #bot-stat-positions').text('-');
         $('#stat-margin-card').show();
     });
 }
@@ -791,20 +824,22 @@ function loadBalance() {
 
             $('#stat-balance-usdt').text(wallet.toFixed(2) + ' USDT');
             $('#stat-balance-available').text(available.toFixed(2) + ' USDT');
+            $('#bot-stat-balance').text(wallet.toFixed(2) + ' USDT');
 
             const upnlText = (unrealised >= 0 ? '+' : '') + unrealised.toFixed(2) + ' USDT';
             $('#stat-unrealised-pnl, #stat-unrealized-pnl').text(upnlText).removeClass('profit loss').addClass(unrealised >= 0 ? 'profit' : 'loss');
         })
         .fail(function() {
             $('#stat-balance-usdt, #stat-balance-available').text('-');
+            $('#bot-stat-balance').text('-');
             $('#stat-unrealised-pnl, #stat-unrealized-pnl').text('-').removeClass('profit loss');
         });
 }
 
 function runBotTick() {
-    const $btn = $('#bot-tick-btn');
-    const originalText = $btn.text();
-    $btn.prop('disabled', true).text('Running...');
+    const $btns = $('.bot-tick-btn');
+    const originalText = $btns.first().text();
+    $btns.prop('disabled', true).text('Running...');
 
     $.ajax({
         url: '/api/bot/tick',
@@ -821,13 +856,13 @@ function runBotTick() {
                 window.showToast(msg, res && res.skipped ? 'info' : 'success');
             }
             // Лёгкий визуальный фидбек через текст кнопки
-            $btn.text('Done');
+            $btns.text('Done');
             // Обновим данные на дашборде после действий бота
             loadDashboard();
             loadBotDecisions();
             loadBotMetrics();
             setTimeout(function() {
-                $btn.text(originalText);
+                $btns.text(originalText);
             }, 1500);
         },
         error: function(xhr) {
@@ -838,13 +873,13 @@ function runBotTick() {
             if (typeof window.showToast === 'function') {
                 window.showToast('Error running bot', 'error');
             }
-            $btn.text('Error');
+            $btns.text('Error');
             setTimeout(function() {
-                $btn.text(originalText);
+                $btns.text(originalText);
             }, 2000);
         },
         complete: function() {
-            $btn.prop('disabled', false);
+            $btns.prop('disabled', false);
         }
     });
 }

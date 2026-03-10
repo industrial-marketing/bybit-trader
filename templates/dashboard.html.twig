@@ -11,20 +11,35 @@
 {% block content %}
 <div class="dashboard">
 
-    {# ── Header with actions ────────────────────────────────────── #}
-    <div class="dashboard-header">
-        <h2><i class="bi bi-bar-chart-fill"></i> Statistics</h2>
-        <div class="dashboard-header-actions">
-            <button id="refresh-btn" class="btn-secondary" title="Refresh data">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
-            </button>
-            <button id="bot-tick-btn" class="btn-primary" title="Run one bot tick">
-                <i class="bi bi-robot"></i> Run Bot
-            </button>
+    {# ── Bot page: compact overview (visible only on Bot tab) ─────── #}
+    <div class="section bot-overview-bar" data-page="bot">
+        <div class="bot-overview-stats">
+            <span class="bot-stat"><strong>Today:</strong> <span id="bot-stat-today-pnl">-</span></span>
+            <span class="bot-stat"><strong>7d:</strong> <span id="bot-stat-7d-pnl">-</span></span>
+            <span class="bot-stat"><strong>Positions:</strong> <span id="bot-stat-positions">-</span></span>
+            <span class="bot-stat"><strong>Balance:</strong> <span id="bot-stat-balance">-</span></span>
+            <div class="bot-overview-actions">
+                <button class="refresh-btn btn-secondary" title="Refresh data"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                <button class="bot-tick-btn btn-primary" title="Run one bot tick"><i class="bi bi-robot"></i> Run Bot</button>
+            </div>
         </div>
     </div>
 
     <div id="bot-status-message" class="bot-status-message"></div>
+
+    {# ── Dashboard page: full statistics block ───────────────────── #}
+    <div class="section" data-page="dashboard">
+    <div class="dashboard-header">
+        <h2><i class="bi bi-bar-chart-fill"></i> Statistics</h2>
+        <div class="dashboard-header-actions">
+            <button class="refresh-btn btn-secondary" title="Refresh data">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+            <button class="bot-tick-btn btn-primary" title="Run one bot tick">
+                <i class="bi bi-robot"></i> Run Bot
+            </button>
+        </div>
+    </div>
 
     {# ── Key metrics bar ────────────────────────────────────────── #}
     <div class="stats-key-metrics">
@@ -170,6 +185,7 @@
             <span style="position:absolute; left:8px; top:4px; font-size:11px; color:var(--muted,#666);">Equity (cumulative PnL) — strategy profitability trend</span>
         </div>
     </div>
+    </div>{# end dashboard stats section #}
 
     {# ── Chart & analysis block ────────────────────────────────── #}
     <div class="section" data-page="dashboard">
@@ -327,7 +343,8 @@
                 <button type="button" class="btn-secondary" id="positions-debug-close">Close</button>
             </div>
         </div>
-        <div class="table-container positions-orders-container">
+        <div class="positions-orders-container" id="positions-wrapper">
+        <div class="table-container positions-table-wrap">
             <table id="positions-table">
                 <thead>
                     <tr>
@@ -351,6 +368,8 @@
                     <tr><td colspan="14" class="loading">Loading...</td></tr>
                 </tbody>
             </table>
+        </div>
+        <div id="positions-cards" class="positions-cards"></div>
         </div>
         <div class="positions-chart-block" style="margin-top:16px;">
             <div class="coin-select-row" style="margin-bottom:8px;">
