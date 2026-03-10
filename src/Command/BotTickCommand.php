@@ -270,6 +270,7 @@ class BotTickCommand extends Command
             $gridStepPct     = max(1.0, min(20.0, (float)($trading['grid_step_pct'] ?? 5)));
             $rotInTrend      = (bool)($trading['rotation_allowed_in_trend'] ?? false);
             $rotInChop       = (bool)($trading['rotation_allowed_in_chop'] ?? true);
+            $rotAlwaysActive = (bool)($trading['rotation_always_active'] ?? false);
 
             foreach ($positions as $p) {
                 $symbol = $p['symbol'] ?? '';
@@ -290,13 +291,16 @@ class BotTickCommand extends Command
                 }
                 $rotationalSymbols["{$symbol}|{$side}"] = true;
 
-                $regime   = $strategySignalsBySymbol[$symbol]['regime'] ?? [];
-                $chopScore = (float)($regime['chop_score'] ?? 0.5);
-                $chopTh    = (float)($regime['chop_threshold'] ?? 0.65);
-                $trend     = $regime['trend'] ?? 'unknown';
-                $isChop    = $chopScore >= $chopTh;
-                $isTrend   = in_array($trend, ['up', 'down'], true);
-                $rotationAllowed = ($isChop && $rotInChop) || ($isTrend && $rotInTrend) || (!$isChop && !$isTrend);
+                $rotationAllowed = $rotAlwaysActive;
+                if (!$rotationAllowed) {
+                    $regime   = $strategySignalsBySymbol[$symbol]['regime'] ?? [];
+                    $chopScore = (float)($regime['chop_score'] ?? 0.5);
+                    $chopTh    = (float)($regime['chop_threshold'] ?? 0.65);
+                    $trend     = $regime['trend'] ?? 'unknown';
+                    $isChop    = $chopScore >= $chopTh;
+                    $isTrend   = in_array($trend, ['up', 'down'], true);
+                    $rotationAllowed = ($isChop && $rotInChop) || ($isTrend && $rotInTrend) || (!$isChop && !$isTrend);
+                }
 
                 $positionForSync = [
                     'symbol' => $symbol,
@@ -644,6 +648,14 @@ class BotTickCommand extends Command
                 $proposals   = $this->chatGPTService->getProposals($this->bybitService, $positions, $orchCtx);
                 $openSymbols = array_fill_keys(array_column($positions, 'symbol'), true);
 
+                $positionMode   = $trading['position_mode'] ?? 'single';
+                $layerSizeUsdt  = 0.0;
+                if ($positionMode === 'rotational_grid') {
+                    $maxLayers      = max(1, (int)($trading['max_layers'] ?? 3));
+                    $maxPositionUsdt = max(10.0, (float)($trading['max_position_usdt'] ?? 100.0));
+                    $layerSizeUsdt   = max(10.0, $maxPositionUsdt / $maxLayers);
+                }
+
                 foreach ($proposals as $p) {
                     if ($slots <= 0) {
                         break;
@@ -654,8 +666,14 @@ class BotTickCommand extends Command
                         continue;
                     }
 
-                    $side   = strtoupper($p['signal'] ?? '') === 'BUY' ? 'BUY' : 'SELL';
-                    $size   = (float) ($p['positionSizeUSDT'] ?? 10);
+                    $side = strtoupper($p['signal'] ?? '') === 'BUY' ? 'BUY' : 'SELL';
+                    $proposedSize = (float) ($p['positionSizeUSDT'] ?? 10);
+                    $minNotional = max($trading['min_position_usdt'] ?? 10.0, 10.0);
+                    if ($positionMode === 'rotational_grid' && $layerSizeUsdt > 0) {
+                        $size = max($minNotional, $layerSizeUsdt);
+                    } else {
+                        $size = max($minNotional, $proposedSize);
+                    }
                     $lev    = (int) ($p['leverage'] ?? 1);
                     $result = $this->bybitService->placeOrder($symbol, $side, $size, $lev);
 

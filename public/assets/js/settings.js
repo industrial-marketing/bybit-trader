@@ -122,6 +122,7 @@ function loadSettings() {
                 $('#trading-base-layer-persistent').prop('checked', data.trading.base_layer_persistent !== false);
                 $('#trading-rotation-in-trend').prop('checked', data.trading.rotation_allowed_in_trend === true);
                 $('#trading-rotation-in-chop').prop('checked', data.trading.rotation_allowed_in_chop !== false);
+                $('#trading-rotation-always-active').prop('checked', !!data.trading.rotation_always_active);
 
                 // Risk settings
                 $('#risk-trading-enabled').prop('checked', data.trading.trading_enabled !== false);
@@ -279,7 +280,8 @@ function saveTradingSettings() {
             unload_on_reclaim_level: $('#trading-unload-on-reclaim').is(':checked'),
             base_layer_persistent: $('#trading-base-layer-persistent').is(':checked'),
             rotation_allowed_in_trend: $('#trading-rotation-in-trend').is(':checked'),
-            rotation_allowed_in_chop: $('#trading-rotation-in-chop').is(':checked')
+            rotation_allowed_in_chop: $('#trading-rotation-in-chop').is(':checked'),
+            rotation_always_active: $('#trading-rotation-always-active').is(':checked')
         }
     };
 

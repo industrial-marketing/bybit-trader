@@ -198,11 +198,12 @@
             <div class="form-group" id="rotational-grid-options">
                 <label>Max layers:</label>
                 <input type="number" min="2" max="5" id="trading-max-layers" name="max_layers" placeholder="3">
-                <span class="hint">Volume limit: max_layers × layer_size_usdt</span>
+                <span class="hint">Размер слоя = max_position / max_layers (при открытии — 1 слой)</span>
             </div>
             <div class="form-group" id="rotational-grid-layer-size">
                 <label>Layer size (USDT):</label>
                 <input type="number" step="1" min="10" id="trading-layer-size-usdt" name="layer_size_usdt" placeholder="50">
+                <span class="hint">Фактически: max_position / max_layers</span>
             </div>
             <div class="form-group" id="rotational-grid-step">
                 <label>Grid step (%):</label>
@@ -228,6 +229,11 @@
             <div class="form-group" id="rotational-grid-rot-trend">
                 <input type="checkbox" id="trading-rotation-in-trend" name="rotation_allowed_in_trend">
                 <span>Allow rotation in trend</span>
+            </div>
+            <div class="form-group" id="rotational-grid-rot-always">
+                <input type="checkbox" id="trading-rotation-always-active" name="rotation_always_active">
+                <span>Grid всегда активна (независимо от режима рынка)</span><br>
+                <span class="hint">Сетка работает по limit-ордерам, без привязки к LLM</span>
             </div>
 
             <div class="buttons-row">

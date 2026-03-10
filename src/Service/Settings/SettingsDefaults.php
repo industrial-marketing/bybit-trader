@@ -45,6 +45,7 @@ final class SettingsDefaults
                 'base_layer_persistent'    => true,
                 'rotation_allowed_in_chop' => true,
                 'rotation_allowed_in_trend'=> false,
+                'rotation_always_active'   => false,
                 'aggressiveness'           => 'balanced',
                 'max_managed_positions'    => 10,
                 'auto_open_min_positions'  => 5,

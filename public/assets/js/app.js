@@ -743,7 +743,10 @@ function loadPositionPlans() {
                 var side = p.side || '?';
                 var layers = (p.active_layers || []);
                 var maxL = parseInt(p.max_layers, 10) || 3;
-                var layerUsdt = parseFloat(p.layer_size_usdt) || 50;
+                var layerUsdt = parseFloat(p.layer_size_usdt);
+                if (!layerUsdt || isNaN(layerUsdt)) {
+                    layerUsdt = Math.max(10, 100 / (parseInt(p.max_layers, 10) || 3));
+                }
                 var anchor = parseFloat(p.anchor_price) || 0;
                 var levels = (p.levels || []).slice(0, 8);
                 var filled = layers.map(function(l){ return parseFloat(l.entry_level); });
