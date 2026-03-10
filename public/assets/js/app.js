@@ -411,9 +411,6 @@ function loadPositionsAndOrders() {
             const botStatusHtml = locked
                 ? `<span class="lock-badge"><i class="bi bi-lock-fill"></i> LOCKED</span>`
                 : `<span style="color:var(--positive);font-size:11px;"><i class="bi bi-check-circle"></i> Allowed</span>`;
-            const curRealised = position.curRealisedPnl != null ? parseFloat(position.curRealisedPnl) : null;
-            const fundingText = curRealised != null && !isNaN(curRealised) ? (curRealised >= 0 ? '+' : '') + curRealised.toFixed(2) + ' USDT' : '-';
-            const fundingClass = curRealised != null && curRealised < 0 ? 'loss' : (curRealised != null && curRealised > 0 ? 'profit' : '');
             const pnlPct = margin > 0 ? (pnl / margin) * 100 : null;
             const pnlPctText = pnlPct != null && !isNaN(pnlPct) ? (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(1) + '%' : '';
 
@@ -455,7 +452,6 @@ function loadPositionsAndOrders() {
                         <span>Margin: ${margin ? margin.toFixed(2) + ' USDT' : '-'}</span>
                         <span>Entry: ${entryPrice ? formatPrice(entryPrice) : '-'}</span>
                         <span>Current: ${position.markPrice ? formatPrice(position.markPrice) : '-'}</span>
-                        <span class="position-card-funding ${fundingClass}" title="Realised PnL for current holding (incl. funding paid)">Funding: ${fundingText}</span>
                         <span>Opened: ${position.openedAt}</span>
                         <span class="position-card-why">${whyHtml}</span>
                     </div>
