@@ -47,7 +47,7 @@
 
 - **QdrantClientService** — обёртка над REST API: ensureCollection, upsertPoints, search
 - **EmbeddingService** — `embedText(text): array` (OpenAI text-embedding-3-small)
-- **MemoryWriteService** — createTradeMemory, createDecisionMemory, createInsightMemory → Qdrant
+- **MemoryWriteService** — createTradeMemory, createDecisionMemory, createDailySummaryMemory, createInsightMemory → Qdrant
 - **MemoryRetrievalService** — findRelevantMemories(profileId, queryText, symbol) → Qdrant search
 - **DailyReflectionService** — cron job, агрегация дня, distilled memories
 - **LlmDecisionContextBuilder** — сбор prompt context с memory блоком
@@ -55,8 +55,9 @@
 ### 3. Integration points
 
 1. **После close_full / close_partial** (BotTickCommand) → MemoryWriteService.createTradeMemory (если memory_write_enabled)
-2. **Перед LLM call** (ChatGPTService) → MemoryRetrievalService.findRelevantMemories → добавить блок в prompt (если memory_enabled)
-3. **Cron daily** → `php bin/console app:memory-daily-reflection` (опционально `--profile-id=1`)
+2. **После каждого LLM decision** (BotTickCommand) → MemoryWriteService.createDecisionMemory (если memory_write_enabled)
+3. **Перед LLM call** (ChatGPTService) → MemoryRetrievalService.findRelevantMemories → добавить блок в prompt (если memory_enabled)
+4. **Cron daily** → `php bin/console app:memory-daily-reflection` (опционально `--profile-id=1`)
 
 ---
 
@@ -77,11 +78,19 @@
 
 ## Формат memory-блока в prompt
 
-```
-RELEVANT HISTORICAL CASES:
-- [BTCUSDT] Long, closed +2.3%. Entry after pullback in uptrend. Averaging helped.
-- [ETHUSDT] Short, closed -1.1%. Late entry in chop. Lesson: wait for confirmation.
+Блок разделён по outcome (good/bad/neutral) для лучшего сигнала LLM:
 
-LEARNED HEURISTICS:
-- In range market with weak volume, averaging too early often fails.
 ```
+SIMILAR FAILED CASES (avoid repeating):
+- [BTCUSDT] Long at 70k, closed at loss. Late entry at highs.
+- [ETHUSDT] Short, closed -1.1%. Late entry in chop.
+
+SIMILAR SUCCESSFUL CASES:
+- [BTCUSDT] Long, closed +2.3%. Entry after pullback in uptrend. Averaging helped.
+- [SOLUSDT] Short, closed +1.5%. Waited for confirmation.
+
+RELEVANT HISTORICAL CASES:
+- [general] Daily summary. 3 events. ...
+```
+
+Insights и daily summaries без outcome попадают в RELEVANT HISTORICAL CASES.
