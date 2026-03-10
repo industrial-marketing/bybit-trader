@@ -118,6 +118,25 @@ class AlertService
     // ── Core send ─────────────────────────────────────────────────
 
     /**
+     * Send raw text to Telegram (for periodic updates). Uses provided token/chatId.
+     */
+    public function sendRawText(string $token, string $chatId, string $text): void
+    {
+        if ($token === '' || $chatId === '') {
+            return;
+        }
+        try {
+            $this->httpClient->request('POST', "https://api.telegram.org/bot{$token}/sendMessage", [
+                'json'    => ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'Markdown'],
+                'timeout' => 10,
+            ])->getContent(false);
+        } catch (\Exception $e) {
+            LogSanitizer::log('Alert', 'Telegram raw send failed: ' . $e->getMessage(), $this->settingsService);
+            throw $e;
+        }
+    }
+
+    /**
      * Send to all configured destinations (Telegram, webhook).
      * Fire-and-forget: errors are only logged, not thrown.
      */

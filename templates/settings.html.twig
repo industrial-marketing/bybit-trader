@@ -425,12 +425,26 @@
                 <label>Cooldown алерта повторяющихся ошибок (мин):</label>
                 <input type="number" min="1" id="alerts-repeated-cooldown" name="repeated_failure_cooldown_minutes" value="60" title="Не дублировать алерт по одному символу чаще чем раз в N минут">
             </div>
+            <hr style="margin: 1rem 0; border-color: rgba(16,185,129,0.3);">
+            <h4 style="margin-bottom: 0.5rem;">Периодические сводки в Telegram</h4>
+            <p class="section-desc" style="margin-bottom: 0.8rem;">Сводка: что закрылось, открылось, как изменился баланс за период.</p>
+            <div class="form-group">
+                <input type="checkbox" id="alerts-update-enabled" name="update_enabled">
+                <span>Включить периодические сводки</span>
+            </div>
+            <div class="form-group">
+                <label>Интервал (минут):</label>
+                <input type="number" min="15" id="alerts-update-interval" name="update_interval_minutes" value="60" title="Как часто присылать сводку">
+            </div>
             <div class="buttons-row">
                 <button type="submit" class="btn-primary">
                     <i class="bi bi-floppy-fill"></i> Save
                 </button>
                 <button type="button" id="test-alert-btn" class="btn-secondary">
                     <i class="bi bi-send"></i> Тестовый алерт
+                </button>
+                <button type="button" id="send-update-now-btn" class="btn-secondary">
+                    <i class="bi bi-telegram"></i> Сводка сейчас
                 </button>
             </div>
         </form>

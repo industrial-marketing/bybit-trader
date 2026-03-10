@@ -68,6 +68,8 @@ final class SettingsDefaults
                 'on_repeated_failures'       => true,
                 'repeated_failure_threshold' => 3,
                 'repeated_failure_cooldown_minutes' => 60,
+                'update_enabled'             => false,
+                'update_interval_minutes'    => 60,
             ],
             'strategies' => [
                 'enabled'           => true,

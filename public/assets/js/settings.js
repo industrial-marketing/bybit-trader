@@ -54,6 +54,10 @@ $(document).ready(function() {
         sendTestAlert();
     });
 
+    $('#send-update-now-btn').on('click', function() {
+        sendTelegramUpdateNow();
+    });
+
     $('#bybit-test-btn').on('click', function() {
         testBybitConnection();
     });
@@ -172,6 +176,8 @@ function loadSettings() {
                 $('#alerts-repeated').prop('checked', data.alerts.on_repeated_failures !== false);
                 $('#alerts-threshold').val(data.alerts.repeated_failure_threshold || 3);
                 $('#alerts-repeated-cooldown').val(data.alerts.repeated_failure_cooldown_minutes ?? 60);
+                $('#alerts-update-enabled').prop('checked', !!data.alerts.update_enabled);
+                $('#alerts-update-interval').val(data.alerts.update_interval_minutes ?? 60);
             }
         })
         .fail(function(xhr) {
@@ -412,7 +418,9 @@ function saveAlertsSettings() {
             on_bybit_error:             $('#alerts-bybit-error').is(':checked'),
             on_repeated_failures:       $('#alerts-repeated').is(':checked'),
             repeated_failure_threshold: parseInt($('#alerts-threshold').val() || '3', 10),
-            repeated_failure_cooldown_minutes: parseInt($('#alerts-repeated-cooldown').val() || '60', 10)
+            repeated_failure_cooldown_minutes: parseInt($('#alerts-repeated-cooldown').val() || '60', 10),
+            update_enabled: $('#alerts-update-enabled').is(':checked'),
+            update_interval_minutes: parseInt($('#alerts-update-interval').val() || '60', 10)
         }
     };
     $.ajax({ url: '/api/settings', method: 'POST', contentType: 'application/json', data: JSON.stringify(settings) })
@@ -429,6 +437,14 @@ function sendTestAlert() {
             showMessage(data.ok ? 'Тестовый алерт отправлен.' : ('Ошибка: ' + (data.error || '?')), data.ok ? 'success' : 'error');
         })
         .fail(function() { showMessage('Ошибка запроса тестового алерта', 'error'); });
+}
+
+function sendTelegramUpdateNow() {
+    $.ajax({ url: '/api/alerts/send-update', method: 'POST', contentType: 'application/json', data: JSON.stringify({}) })
+        .done(function(data) {
+            showMessage(data.sent ? 'Сводка отправлена в Telegram.' : ('Ошибка: ' + (data.error || 'Telegram не настроен')), data.sent ? 'success' : 'error');
+        })
+        .fail(function() { showMessage('Ошибка запроса отправки сводки', 'error'); });
 }
 
 function testDeepseekConnection() {

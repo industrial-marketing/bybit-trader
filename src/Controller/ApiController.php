@@ -20,6 +20,7 @@ use App\Service\RiskGuardService;
 use App\Service\Memory\DailyReflectionService;
 use App\Service\Memory\MemoryListService;
 use App\Service\Memory\MemoryRetrievalService;
+use App\Service\TelegramUpdateService;
 use App\Service\RotationalGridLimitOrderManager;
 use App\Service\RotationalGridService;
 use App\Service\SettingsService;
@@ -53,6 +54,7 @@ class ApiController extends AbstractController
         private readonly MemoryListService $memoryList,
         private readonly MemoryRetrievalService $memoryRetrieval,
         private readonly DailyReflectionService $dailyReflection,
+        private readonly TelegramUpdateService $telegramUpdate,
     ) {}
 
     // ── Positions / orders / trades ───────────────────────────────
@@ -959,6 +961,13 @@ class ApiController extends AbstractController
     public function testAlert(): JsonResponse
     {
         $result = $this->alertService->sendTest('Тестовый алерт от Bybit Trader ✅', ['time' => date('Y-m-d H:i:s')]);
+        return $this->json($result);
+    }
+
+    #[Route('/alerts/send-update', name: 'api_alerts_send_update', methods: ['POST'])]
+    public function sendTelegramUpdate(): JsonResponse
+    {
+        $result = $this->telegramUpdate->sendNow();
         return $this->json($result);
     }
 

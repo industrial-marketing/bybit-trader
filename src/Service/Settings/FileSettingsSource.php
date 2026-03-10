@@ -86,6 +86,8 @@ class FileSettingsSource implements SettingsSourceInterface
             'alerts' => [
                 'telegram_bot_token'         => '',
                 'telegram_chat_id'           => '',
+                'update_enabled'             => false,
+                'update_interval_minutes'    => 60,
                 'webhook_url'                => '',
                 'on_llm_failure'             => true,
                 'on_invalid_response'        => true,
