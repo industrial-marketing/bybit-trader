@@ -1,21 +1,24 @@
 {
+  "id": "/app",
   "name": "Bybit Trader",
   "short_name": "Bybit Trader",
   "description": "Automated trading bot with LLM analysis",
   "start_url": "/app",
+  "scope": "/",
   "display": "standalone",
+  "prefer_related_applications": false,
   "background_color": "#0B1220",
   "theme_color": "#F59E0B",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/assets/brand/bybit_trader_icon.png",
+      "src": "/assets/brand/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/assets/brand/bybit_trader_icon.png",
+      "src": "/assets/brand/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"

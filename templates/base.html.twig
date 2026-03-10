@@ -119,6 +119,12 @@
                     </a>
                 </li>
                 {% endif %}
+                <li id="nav-install-wrap" style="display:none;">
+                    <button type="button" id="nav-install-btn" class="nav-install-btn" title="Install app">
+                        <i class="bi bi-download"></i>
+                        <span class="nav-label">Install</span>
+                    </button>
+                </li>
                 <li>
                     <a href="/logout" class="nav-logout" title="Log out">
                         <i class="bi bi-box-arrow-right"></i>
@@ -163,6 +169,28 @@
         });
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js').catch(function() {});
+        }
+        var installPrompt = null;
+        var installWrap = document.getElementById('nav-install-wrap');
+        var installBtn = document.getElementById('nav-install-btn');
+        window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            installPrompt = e;
+            if (installWrap) installWrap.style.display = '';
+        });
+        window.addEventListener('appinstalled', function() {
+            installPrompt = null;
+            if (installWrap) installWrap.style.display = 'none';
+        });
+        if (installBtn && installWrap) {
+            installBtn.addEventListener('click', function() {
+                if (!installPrompt) return;
+                installPrompt.prompt();
+                installPrompt.userChoice.then(function(choice) {
+                    if (choice.outcome === 'accepted') installWrap.style.display = 'none';
+                    installPrompt = null;
+                });
+            });
         }
         $menu.querySelectorAll('.profile-option').forEach(function(a) {
             a.addEventListener('click', function(e) {
