@@ -12,13 +12,13 @@
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/assets/brand/icons/icon-192.png",
+      "src": "/assets/brand/bybit_trader_icon.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/assets/brand/icons/icon-512.png",
+      "src": "/assets/brand/bybit_trader_icon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"

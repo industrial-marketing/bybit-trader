@@ -30,6 +30,8 @@ security:
             lazy: true
 
     access_control:
+        - { path: ^/manifest\.json$, roles: PUBLIC_ACCESS }
+        - { path: ^/sw\.js$, roles: PUBLIC_ACCESS }
         - { path: ^/login, roles: PUBLIC_ACCESS }
         - { path: ^/register, roles: PUBLIC_ACCESS }
         - { path: ^/connect/, roles: PUBLIC_ACCESS }
