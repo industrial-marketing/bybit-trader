@@ -25,6 +25,7 @@ class TelegramUpdateService
         private readonly SettingsService $settingsService,
         private readonly ProfileContext $profileContext,
         private readonly EntityManagerInterface $em,
+        private readonly CircuitBreakerService $circuitBreaker,
         private readonly string $projectDir,
         private readonly ?LoggerInterface $logger = null,
     ) {}
@@ -56,9 +57,6 @@ class TelegramUpdateService
         }
 
         $profiles = $this->getProfilesForUpdate();
-        if (empty($profiles)) {
-            return ['sent' => false, 'profiles' => 0];
-        }
 
         $since = new \DateTimeImmutable('-' . ceil($intervalMin / 60.0) . ' hours');
         if ($lastSent > 0) {
@@ -66,6 +64,11 @@ class TelegramUpdateService
         }
 
         $sections = [];
+        if (empty($profiles)) {
+            $cbStatus = $this->circuitBreaker->getStatus();
+            $llmOk = !($cbStatus['breakers']['llm']['open'] ?? false) && !($cbStatus['breakers']['llm_invalid']['open'] ?? false);
+            $sections[] = "Нет активных профилей.\n" . ($llmOk ? '🤖 LLM: активен' : '⚠️ LLM: не активен');
+        }
         foreach ($profiles as $profile) {
             $this->profileContext->setActiveProfileId($profile->getId());
             $section = $this->buildProfileSummary($profile, $since);
@@ -76,7 +79,7 @@ class TelegramUpdateService
         $this->profileContext->setActiveProfileId(null);
 
         if (empty($sections)) {
-            $text = "📊 *Периодическая сводка* ({$since->format('d.m H:i')} — сейчас)\n\nНет новых событий.";
+            $text = "📊 *Периодическая сводка* ({$since->format('d.m H:i')} — " . date('d.m H:i') . ")\n\nНет данных для отчёта.";
         } else {
             $header = "📊 *Периодическая сводка* ({$since->format('d.m H:i')} — " . date('d.m H:i') . ")";
             $text = $header . "\n\n" . implode("\n\n---\n\n", $sections);
@@ -86,8 +89,12 @@ class TelegramUpdateService
         // Use a custom send or extend AlertService. For now, send directly like AlertService does.
         $sent = $this->sendRawToTelegram($token, $chatId, $text);
 
-        if ($sent) {
+        if ($sent && !empty($profiles)) {
             $this->saveState($now, $profiles);
+        } elseif ($sent) {
+            $state = $this->loadState();
+            $state['lastSentAt'] = $now;
+            AtomicFileStorage::write($this->getStatePath(), $state);
         }
 
         return [
@@ -114,6 +121,11 @@ class TelegramUpdateService
 
         $profiles = $this->getProfilesForUpdate();
         $sections = [];
+        if (empty($profiles)) {
+            $cbStatus = $this->circuitBreaker->getStatus();
+            $llmOk = !($cbStatus['breakers']['llm']['open'] ?? false) && !($cbStatus['breakers']['llm_invalid']['open'] ?? false);
+            $sections[] = "Нет активных профилей.\n" . ($llmOk ? '🤖 LLM: активен' : '⚠️ LLM: не активен');
+        }
         foreach ($profiles as $profile) {
             $this->profileContext->setActiveProfileId($profile->getId());
             $section = $this->buildProfileSummary($profile, $since);
@@ -123,15 +135,15 @@ class TelegramUpdateService
         }
         $this->profileContext->setActiveProfileId(null);
 
-        if (empty($sections)) {
-            $text = "📊 *Сводка за последние {$intervalMin} мин*\n\nНет новых событий.";
-        } else {
-            $text = "📊 *Сводка за последние {$intervalMin} мин*\n\n" . implode("\n\n---\n\n", $sections);
-        }
+        $text = "📊 *Сводка за последние {$intervalMin} мин*\n\n" . implode("\n\n---\n\n", $sections);
 
         $sent = $this->sendRawToTelegram($token, $chatId, $text);
-        if ($sent) {
+        if ($sent && !empty($profiles)) {
             $this->saveState(time(), $profiles);
+        } elseif ($sent) {
+            $state = $this->loadState();
+            $state['lastSentAt'] = time();
+            AtomicFileStorage::write($this->getStatePath(), $state);
         }
 
         return ['sent' => $sent, 'profiles' => count($profiles), 'error' => $sent ? null : 'Send failed'];
@@ -149,10 +161,23 @@ class TelegramUpdateService
 
         $lines = ["*{$profile->getName()}* (ID: {$profile->getId()})"];
 
-        // Balance
+        $cbStatus = $this->circuitBreaker->getStatus();
+        $llmOk = !($cbStatus['breakers']['llm']['open'] ?? false) && !($cbStatus['breakers']['llm_invalid']['open'] ?? false);
+        if ($llmOk) {
+            $lines[] = '🤖 LLM: активен';
+        } else {
+            $remLlm = ($cbStatus['breakers']['llm']['open'] ?? false) ? ($cbStatus['breakers']['llm']['remaining_human'] ?? null) : null;
+            $remInv = ($cbStatus['breakers']['llm_invalid']['open'] ?? false) ? ($cbStatus['breakers']['llm_invalid']['remaining_human'] ?? null) : null;
+            $remaining = $remLlm ?? $remInv;
+            $lines[] = '⚠️ LLM: не активен' . ($remaining ? " (осталось ~{$remaining})" : '');
+        }
+
+        // Balance + positions
         $equity = round($balance['totalEquity'] ?? 0, 2);
         $unrealized = round($balance['unrealisedPnl'] ?? 0, 2);
-        $lines[] = "💰 Баланс: {$equity} USDT (нереал. PnL: " . ($unrealized >= 0 ? '+' : '') . "{$unrealized})";
+        $positions = $this->bybitService->getPositions();
+        $posCount = count($positions);
+        $lines[] = "💰 Баланс: {$equity} USDT (нереал. PnL: " . ($unrealized >= 0 ? '+' : '') . "{$unrealized}) | Позиций: {$posCount}";
 
         if ($lastBalance !== null && is_array($lastBalance)) {
             $prevEquity = (float)($lastBalance['totalEquity'] ?? 0);
@@ -176,6 +201,10 @@ class TelegramUpdateService
                     $closed[] = "  • {$sym} {$side} closed {$type}{$pnlStr} {$ts}";
                 } elseif (in_array($type, ['auto_open', 'average_in', 'confirmed_action'], true)) {
                     $opened[] = "  • {$sym} {$side} {$type} {$ts}";
+                } elseif (in_array($type, ['rotational_add_layer', 'rotational_unload_layer'], true)) {
+                    $gridLabel = $type === 'rotational_add_layer' ? 'grid add' : 'grid unload';
+                    $level = $e['level'] ?? '';
+                    $other[] = "  • {$sym} {$side} {$gridLabel}" . ($level ? " @{$level}" : '') . " {$ts}";
                 } else {
                     $other[] = "  • {$sym} {$type} {$ts}";
                 }
@@ -188,7 +217,7 @@ class TelegramUpdateService
                 $lines[] = "Открыто / усреднение:\n" . implode("\n", array_slice($opened, 0, 10));
             }
             if (!empty($other)) {
-                $lines[] = "Прочее:\n" . implode("\n", array_slice($other, 0, 5));
+                $lines[] = "Сетка / прочее:\n" . implode("\n", array_slice($other, 0, 10));
             }
         }
 
