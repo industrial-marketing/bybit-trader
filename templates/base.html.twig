@@ -3,7 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#F59E0B">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Bybit Trader">
     <title>{% block title %}Bybit Trader{% endblock %}</title>
+
+    <link rel="manifest" href="/manifest.json">
 
     {# Favicons — place generated files in public/assets/brand/icons/ #}
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/favicon-32x32.png">
@@ -155,6 +161,9 @@
         document.addEventListener('click', function() {
             document.querySelector('.profile-dropdown')?.classList.remove('open');
         });
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(function() {});
+        }
         $menu.querySelectorAll('.profile-option').forEach(function(a) {
             a.addEventListener('click', function(e) {
                 e.preventDefault();
