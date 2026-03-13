@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace App\Service;
 
 use App\Service\BotHistoryService;
+use App\Service\Settings\ProfileContext;
 
 /**
  * Управление limit-ордерами для Rotational Grid: добор и разгрузка через limit-ордера.
  *
  * - Add orders: limit на уровнях L1, L2… для добора при движении цены против позиции
  * - Unload order: limit reduce-only на уровне выше нижнего слоя для разгрузки
+ *
+ * orderLinkId включает profile ID для уникальности при нескольких профилях (110072 = OrderLinkedID is duplicate).
  */
 class RotationalGridLimitOrderManager
 {
@@ -20,6 +23,7 @@ class RotationalGridLimitOrderManager
         private readonly RotationalGridService $grid,
         private readonly BybitService $bybit,
         private readonly BotHistoryService $botHistory,
+        private readonly ProfileContext $profileContext,
     ) {
     }
 

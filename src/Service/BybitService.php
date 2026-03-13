@@ -1671,10 +1671,11 @@ class BybitService
             $data    = $response->toArray(false);
             $retCode = $data['retCode'] ?? -1;
             $orderId = $data['result']['orderId'] ?? null;
-            $this->log("placeLimitOrder → symbol={$symbol} side={$side} price={$priceRounded} qty={$qty} retCode={$retCode} orderId=" . ($orderId ?? 'n/a'));
+            $retMsg = $data['retMsg'] ?? '';
+            $this->log("placeLimitOrder → symbol={$symbol} side={$side} price={$priceRounded} qty={$qty} retCode={$retCode} retMsg={$retMsg} orderId=" . ($orderId ?? 'n/a'));
 
             if ($retCode !== 0) {
-                return ['ok' => false, 'error' => $data['retMsg'] ?? 'Unknown error', 'retCode' => $retCode];
+                return ['ok' => false, 'error' => $retMsg ?: 'Unknown error', 'retCode' => $retCode];
             }
             return ['ok' => true, 'result' => $data['result'] ?? [], 'orderId' => $orderId];
         } catch (\Exception $e) {
@@ -1744,10 +1745,11 @@ class BybitService
             $data    = $response->toArray(false);
             $retCode = $data['retCode'] ?? -1;
             $orderId = $data['result']['orderId'] ?? null;
-            $this->log("placeLimitReduceOrder → symbol={$symbol} side={$orderSide} price={$priceRounded} qty={$qty} retCode={$retCode} orderId=" . ($orderId ?? 'n/a'));
+            $retMsg = $data['retMsg'] ?? '';
+            $this->log("placeLimitReduceOrder → symbol={$symbol} side={$orderSide} price={$priceRounded} qty={$qty} retCode={$retCode} retMsg={$retMsg} orderId=" . ($orderId ?? 'n/a'));
 
             if ($retCode !== 0) {
-                return ['ok' => false, 'error' => $data['retMsg'] ?? 'Unknown error', 'retCode' => $retCode];
+                return ['ok' => false, 'error' => $retMsg ?: 'Unknown error', 'retCode' => $retCode];
             }
             return ['ok' => true, 'result' => $data['result'] ?? [], 'orderId' => $orderId];
         } catch (\Exception $e) {
