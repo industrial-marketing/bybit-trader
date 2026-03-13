@@ -756,12 +756,15 @@ class ApiController extends AbstractController
                     }
 
                     $event = [
-                        'symbol'          => $symbol, 'side' => $side,
-                        'positionSizeUSDT'=> $size,   'leverage' => $lev,
-                        'confidence'      => $confidence,
-                        'reason'          => $p['reason'] ?? '',
-                        'ok'              => $result['ok']    ?? false,
-                        'error'           => $result['error'] ?? null,
+                        'symbol'           => $symbol, 'side' => $side,
+                        'positionSizeUSDT' => $size,   'leverage' => $lev,
+                        'confidence'       => $confidence,
+                        'reason'           => $p['reason'] ?? '',
+                        'ok'               => $result['ok'] ?? false,
+                        'error'            => $result['error'] ?? null,
+                        'positionVerified' => $result['positionVerified'] ?? false,
+                        'orderId'          => $result['orderId'] ?? null,
+                        'orderStatus'      => $result['orderStatus'] ?? null,
                     ];
                     $this->botHistory->log('auto_open', $event);
                     $opened[] = $event;
@@ -774,8 +777,9 @@ class ApiController extends AbstractController
             }
         }
 
-        $managedCount = count($managed);
-        $openedCount  = count($opened);
+        $actuallyOpened = array_filter($opened, fn($e) => ($e['ok'] ?? false) === true);
+        $managedCount   = count($managed);
+        $openedCount    = count($actuallyOpened);
 
         $summary = $managedCount === 0 && $openedCount === 0
             ? 'Бот проверил позиции — действий не требуется.'

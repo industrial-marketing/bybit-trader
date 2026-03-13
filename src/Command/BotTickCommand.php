@@ -720,12 +720,15 @@ class BotTickCommand extends Command
                     }
 
                     $event = [
-                        'symbol'           => $symbol, 'side' => $side,
-                        'positionSizeUSDT' => $size,   'leverage' => $lev,
-                        'confidence'       => $confidence,
-                        'reason'           => $p['reason'] ?? '',
-                        'ok'               => $ok,
-                        'error'            => $result['error'] ?? null,
+                        'symbol'            => $symbol, 'side' => $side,
+                        'positionSizeUSDT'  => $size,   'leverage' => $lev,
+                        'confidence'        => $confidence,
+                        'reason'            => $p['reason'] ?? '',
+                        'ok'                => $ok,
+                        'error'             => $result['error'] ?? null,
+                        'positionVerified'  => $result['positionVerified'] ?? false,
+                        'orderId'           => $result['orderId'] ?? null,
+                        'orderStatus'       => $result['orderStatus'] ?? null,
                     ];
                     $this->botHistory->log('auto_open', $event);
                     $opened[] = $event;
@@ -742,6 +745,8 @@ class BotTickCommand extends Command
                     if ($ok) {
                         $slots--;
                         $openSymbols[$symbol] = true;
+                    } else {
+                        // Не считаем слот использованным — позиция не открыта
                     }
                 }
             }
@@ -750,8 +755,9 @@ class BotTickCommand extends Command
         }
 
         // ── Finalize ─────────────────────────────────────────────────────
+        $actuallyOpened = array_filter($opened, fn($e) => ($e['ok'] ?? false) === true);
         $managedCount = count($managed);
-        $openedCount  = count($opened);
+        $openedCount  = count($actuallyOpened);
 
         $this->botHistory->log('bot_tick', [
             'run_id'             => $runId,

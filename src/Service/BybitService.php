@@ -1464,28 +1464,54 @@ class BybitService
             }
 
             // Post-check: верификация, что позиция реально открылась (не только "ордер принят")
-            sleep(2);
-            $positions = $this->getPositions();
             $posSide   = strtoupper($side) === 'BUY' ? 'Buy' : 'Sell';
             $positionVerified = false;
-            foreach ($positions as $p) {
-                if (($p['symbol'] ?? '') === $symbol && ($p['side'] ?? '') === $posSide && (float)($p['size'] ?? 0) > 0) {
-                    $positionVerified = true;
-                    break;
+            $orderStatus     = null;
+            $delays          = [2, 3, 3];
+
+            foreach ($delays as $i => $sec) {
+                sleep($sec);
+                $positions = $this->getPositions();
+                foreach ($positions as $p) {
+                    if (($p['symbol'] ?? '') === $symbol && ($p['side'] ?? '') === $posSide && (float)($p['size'] ?? 0) > 0) {
+                        $positionVerified = true;
+                        break 2;
+                    }
+                }
+                if (!$positionVerified && $orderId) {
+                    $orderInfo = $this->getOrderFromHistory($symbol, $orderId);
+                    $orderStatus = $orderInfo['orderStatus'] ?? null;
+                    if ($orderInfo && ($orderStatus === 'Filled' || $orderStatus === 'PartiallyFilled')) {
+                        $positionVerified = true;
+                        break;
+                    }
                 }
             }
-            if (!$positionVerified && $orderId) {
-                $orderInfo = $this->getOrderFromHistory($symbol, $orderId);
-                if ($orderInfo && ($orderInfo['orderStatus'] ?? '') === 'Filled') {
-                    $positionVerified = true;
-                }
+
+            if (!$positionVerified) {
+                $orderInfo   = $orderId ? $this->getOrderFromHistory($symbol, $orderId) : null;
+                $orderStatus = $orderInfo['orderStatus'] ?? 'unknown';
+                $errMsg = sprintf(
+                    'Позиция не подтверждена: ордер %s принят, но позиция не найдена. orderStatus=%s',
+                    $orderId ?? 'n/a',
+                    $orderStatus
+                );
+                $this->log("placeOrder verification failed: {$symbol} {$side} orderId={$orderId} orderStatus={$orderStatus}");
+                return [
+                    'ok'               => false,
+                    'error'            => $errMsg,
+                    'result'           => $data['result'] ?? [],
+                    'orderId'          => $orderId,
+                    'positionVerified' => false,
+                    'orderStatus'      => $orderStatus,
+                ];
             }
 
             return [
                 'ok'               => true,
                 'result'           => $data['result'] ?? [],
                 'orderId'          => $orderId,
-                'positionVerified' => $positionVerified,
+                'positionVerified' => true,
             ];
         } catch (\Exception $e) {
             $this->log('placeOrder Error: ' . $e->getMessage());
