@@ -62,7 +62,8 @@ $(document).ready(function() {
 
     // Ручной запуск бота (тот же эндпоинт, что и по cron)
     $(document).on('click', '.bot-tick-btn', function() {
-        runBotTick();
+        const force = $(this).data('force') === 1;
+        runBotTick(force);
     });
 
     // Предложения: загрузка списка
@@ -848,13 +849,14 @@ function loadBalance() {
         });
 }
 
-function runBotTick() {
+function runBotTick(force) {
     const $btns = $('.bot-tick-btn');
-    const originalText = $btns.first().text();
+    $btns.each(function() { $(this).data('origText', $(this).text()); });
     $btns.prop('disabled', true).text('Running...');
 
+    const url = '/api/bot/tick' + (force ? '?force=1' : '');
     $.ajax({
-        url: '/api/bot/tick',
+        url: url,
         method: 'POST',
         success: function(res) {
             const msg = res && res.summary ? res.summary : (res && res.message ? res.message : 'Bot completed');
@@ -868,6 +870,7 @@ function runBotTick() {
                 window.showToast(msg, res && res.skipped ? 'info' : 'success');
             }
             $btns.text('Done');
+            setTimeout(function() { $btns.each(function() { $(this).text($(this).data('origText') || 'Run Bot'); }); }, 1500);
             loadDashboard();
             loadBotDecisions();
             loadBotMetrics();
@@ -877,9 +880,6 @@ function runBotTick() {
                 showTickDiagnosticsModal(res.tick_log, res);
             }
 
-            setTimeout(function() {
-                $btns.text(originalText);
-            }, 1500);
         },
         error: function(xhr) {
             console.error('Bot tick error', xhr);
@@ -890,6 +890,7 @@ function runBotTick() {
                 window.showToast('Error running bot', 'error');
             }
             $btns.text('Error');
+            setTimeout(function() { $btns.each(function() { $(this).text($(this).data('origText') || 'Run Bot'); }); }, 2000);
             // Показать диагностику и при ошибке (если есть tick_log в response)
             try {
                 const res = xhr.responseJSON;
@@ -897,9 +898,6 @@ function runBotTick() {
                     showTickDiagnosticsModal(res.tick_log, res);
                 }
             } catch (e) { /* ignore */ }
-            setTimeout(function() {
-                $btns.text(originalText);
-            }, 2000);
         },
         complete: function() {
             $btns.prop('disabled', false);

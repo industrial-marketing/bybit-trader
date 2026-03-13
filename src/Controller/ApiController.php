@@ -242,7 +242,7 @@ class ApiController extends AbstractController
     // ── Bot tick ──────────────────────────────────────────────────
 
     #[Route('/bot/tick', name: 'api_bot_tick', methods: ['POST', 'GET'])]
-    public function botTick(): JsonResponse
+    public function botTick(Request $request): JsonResponse
     {
         $log = [];
         $addLog = function (string $line) use (&$log): void {
@@ -291,22 +291,26 @@ class ApiController extends AbstractController
         }
 
         // ── Idempotency / timeframe throttle (atomic, flock-protected) ───
+        $force = filter_var($request->query->get('force') ?? $request->request->get('force'), FILTER_VALIDATE_BOOLEAN);
         $tfLabel = match (true) {
             $botTimeframe >= 1440 => '1d',
             $botTimeframe >= 60   => ($botTimeframe / 60) . 'h',
             default               => "{$botTimeframe}m",
         };
-        $runId = $this->botRunService->tryStart($botTimeframe);
+        $runId = $force ? 'force-' . uniqid('', true) : $this->botRunService->tryStart($botTimeframe);
         if ($runId === null) {
             $bucket = $this->botRunService->currentBucket($botTimeframe);
-            $addLog("SKIP: Bucket {$bucket} ({$tfLabel}) уже выполняется или завершён.");
+            $addLog("SKIP: Bucket {$bucket} ({$tfLabel}) уже выполняется или завершён. Добавьте ?force=1 для принудительного запуска.");
             return $this->json([
                 'ok'      => true,
                 'skipped' => true,
                 'reason'  => 'timeframe_bucket_done_or_running',
-                'message' => "Тик для окна {$bucket} ({$tfLabel}) уже выполняется или завершён.",
+                'message' => "Тик для окна {$bucket} ({$tfLabel}) уже выполняется или завершён. Добавьте ?force=1 для принудительного запуска.",
                 'managed' => [], 'opened' => [], 'tick_log' => $log,
             ]);
+        }
+        if ($force) {
+            $addLog('Force mode: idempotency check skipped');
         }
 
         $addLog("Run ID: {$runId} | Timeframe: {$tfLabel}");
