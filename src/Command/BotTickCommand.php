@@ -731,7 +731,9 @@ class BotTickCommand extends Command
                         'error'            => $result['error'] ?? null,
                     ];
                     $this->botHistory->log('auto_open', $event);
-                    $opened[] = $event;
+                    if ($ok && !$skipped) {
+                        $opened[] = $event;
+                    }
 
                     if (!$ok && !empty($result['error'])) {
                         $this->botHistory->log('proposal_flow', [

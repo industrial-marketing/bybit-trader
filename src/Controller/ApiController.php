@@ -722,7 +722,9 @@ class ApiController extends AbstractController
                         'error'           => $result['error'] ?? null,
                     ];
                     $this->botHistory->log('auto_open', $event);
-                    $opened[] = $event;
+                    if (($result['ok'] ?? false) && !$skipped) {
+                        $opened[] = $event;
+                    }
 
                     if (($result['ok'] ?? false) && !$skipped) {
                         $slots--;
