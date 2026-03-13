@@ -19,6 +19,8 @@ class BybitService
     private const QTY_ERROR_CODES = [110017, 110009, 170036, 170037];
     // retCode for rate limit exceeded
     private const RATE_LIMIT_CODE = 10006;
+    // retCode: position idx not match position mode (One-Way vs Hedge)
+    private const POSITION_IDX_MISMATCH = 10001;
     // set-leverage: leverage already at requested value → continue
     private const SET_LEVERAGE_NO_CHANGE = 110043;
     private array $instrumentMemCache = [];
@@ -36,6 +38,15 @@ class BybitService
         $trading = $this->settingsService->getTradingSettings();
         $mode    = $trading['bybit_position_mode'] ?? 'one_way';
         if ($mode === 'hedge') {
+            return strtoupper($positionSide) === 'BUY' ? 1 : 2;
+        }
+        return 0;
+    }
+
+    /** Alternate positionIdx for retry when retCode 10001 (mode mismatch). */
+    private function getAlternatePositionIdx(int $posIdx, string $positionSide): int
+    {
+        if ($posIdx === 0) {
             return strtoupper($positionSide) === 'BUY' ? 1 : 2;
         }
         return 0;
@@ -1453,8 +1464,8 @@ class BybitService
                 $this->log("placeOrder set-leverage: leverage already set, continuing");
             }
 
-            // Place market order
-            $posIdx = $this->getPositionIdx($side);
+            // Place market order (with retry on position idx mismatch)
+            $posIdx   = $this->getPositionIdx($side);
             $bodyOrder = json_encode(['category' => 'linear', 'symbol' => $symbol, 'side' => $side, 'orderType' => 'Market', 'qty' => (string)$qty, 'positionIdx' => $posIdx]);
             $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
                 'headers' => $this->getAuthHeaders('POST', '/v5/order/create', $emptyParams, $settings, $bodyOrder),
@@ -1465,7 +1476,22 @@ class BybitService
             $retCode = $data['retCode'] ?? -1;
             $retMsg  = $data['retMsg'] ?? '';
             $orderId = $data['result']['orderId'] ?? null;
-            $this->log("placeOrder create → retCode={$retCode} retMsg={$retMsg} orderId=" . ($orderId ?? 'n/a'));
+
+            if ($retCode === self::POSITION_IDX_MISMATCH) {
+                $posIdx   = $this->getAlternatePositionIdx($posIdx, $side);
+                $bodyOrder = json_encode(['category' => 'linear', 'symbol' => $symbol, 'side' => $side, 'orderType' => 'Market', 'qty' => (string)$qty, 'positionIdx' => $posIdx]);
+                $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
+                    'headers' => $this->getAuthHeaders('POST', '/v5/order/create', $emptyParams, $settings, $bodyOrder),
+                    'body'    => $bodyOrder,
+                ]);
+                $data    = $response->toArray(false);
+                $retCode = $data['retCode'] ?? -1;
+                $retMsg  = $data['retMsg'] ?? '';
+                $orderId = $data['result']['orderId'] ?? null;
+                $this->log("placeOrder create (retry alt positionIdx) → retCode={$retCode} retMsg={$retMsg} orderId=" . ($orderId ?? 'n/a'));
+            } else {
+                $this->log("placeOrder create → retCode={$retCode} retMsg={$retMsg} orderId=" . ($orderId ?? 'n/a'));
+            }
 
             // Auto-invalidate instrument cache on qty-related errors
             if (in_array($retCode, self::QTY_ERROR_CODES, true)) {
@@ -1564,8 +1590,7 @@ class BybitService
         $baseUrl   = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
         $emptyParams = [];
 
-        $trading   = $this->settingsService->getTradingSettings();
-        $posIdx    = $this->getPositionIdx($currentSide);
+        $posIdx = isset($position['positionIdx']) ? (int)$position['positionIdx'] : $this->getPositionIdx($currentSide);
         try {
             $bodyOrder = json_encode(['category' => 'linear', 'symbol' => $symbol, 'side' => $orderSide, 'orderType' => 'Market', 'qty' => (string)$qty, 'reduceOnly' => true, 'positionIdx' => $posIdx]);
             $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
@@ -1574,6 +1599,18 @@ class BybitService
             ]);
             $data    = $response->toArray(false);
             $retCode = $data['retCode'] ?? -1;
+
+            if ($retCode === self::POSITION_IDX_MISMATCH) {
+                $posIdx = $this->getAlternatePositionIdx($posIdx, $currentSide);
+                $this->log("closePositionMarket retry positionIdx={$posIdx} (was mismatch)");
+                $bodyOrder = json_encode(['category' => 'linear', 'symbol' => $symbol, 'side' => $orderSide, 'orderType' => 'Market', 'qty' => (string)$qty, 'reduceOnly' => true, 'positionIdx' => $posIdx]);
+                $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
+                    'headers' => $this->getAuthHeaders('POST', '/v5/order/create', $emptyParams, $settings, $bodyOrder),
+                    'body'    => $bodyOrder,
+                ]);
+                $data    = $response->toArray(false);
+                $retCode = $data['retCode'] ?? -1;
+            }
 
             if (in_array($retCode, self::QTY_ERROR_CODES, true)) {
                 $this->invalidateInstrumentCache($symbol);
@@ -1689,6 +1726,19 @@ class BybitService
             $retCode = $data['retCode'] ?? -1;
             $orderId = $data['result']['orderId'] ?? null;
             $retMsg = $data['retMsg'] ?? '';
+            if ($retCode === self::POSITION_IDX_MISMATCH) {
+                $this->log("placeLimitOrder position idx mismatch (retCode=10001), retrying with alternate positionIdx");
+                $orderPayload['positionIdx'] = $this->getAlternatePositionIdx($posIdx, $side);
+                $bodyOrder = json_encode($orderPayload);
+                $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
+                    'headers' => $this->getAuthHeaders('POST', '/v5/order/create', $emptyParams, $settings, $bodyOrder),
+                    'body'    => $bodyOrder,
+                ]);
+                $data    = $response->toArray(false);
+                $retCode = $data['retCode'] ?? -1;
+                $orderId = $data['result']['orderId'] ?? null;
+                $retMsg = $data['retMsg'] ?? '';
+            }
             $this->log("placeLimitOrder → symbol={$symbol} side={$side} price={$priceRounded} qty={$qty} retCode={$retCode} retMsg={$retMsg} orderId=" . ($orderId ?? 'n/a'));
 
             if ($retCode !== 0) {
@@ -1763,8 +1813,23 @@ class BybitService
             ]);
             $data    = $response->toArray(false);
             $retCode = $data['retCode'] ?? -1;
+            $retMsg  = $data['retMsg'] ?? '';
+
+            if ($retCode === self::POSITION_IDX_MISMATCH) {
+                $altIdx     = $this->getAlternatePositionIdx($posIdx, $currentSide);
+                $orderPayload['positionIdx'] = $altIdx;
+                $bodyOrder  = json_encode($orderPayload);
+                $this->log("placeLimitReduceOrder retry → positionIdx {$posIdx}→{$altIdx}");
+                $response   = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
+                    'headers' => $this->getAuthHeaders('POST', '/v5/order/create', $emptyParams, $settings, $bodyOrder),
+                    'body'    => $bodyOrder,
+                ]);
+                $data    = $response->toArray(false);
+                $retCode = $data['retCode'] ?? -1;
+                $retMsg  = $data['retMsg'] ?? '';
+            }
+
             $orderId = $data['result']['orderId'] ?? null;
-            $retMsg = $data['retMsg'] ?? '';
             $this->log("placeLimitReduceOrder → symbol={$symbol} side={$orderSide} price={$priceRounded} qty={$qty} retCode={$retCode} retMsg={$retMsg} orderId=" . ($orderId ?? 'n/a'));
 
             if ($retCode !== 0) {
@@ -1839,8 +1904,22 @@ class BybitService
                 'headers' => $this->getAuthHeaders('POST', '/v5/position/trading-stop', $emptyParams, $settings, $body),
                 'body'    => $body,
             ]);
-            $data = $response->toArray(false);
-            if (($data['retCode'] ?? -1) === 0) {
+            $data    = $response->toArray(false);
+            $retCode = $data['retCode'] ?? -1;
+
+            if ($retCode === self::POSITION_IDX_MISMATCH) {
+                $altIdx  = $this->getAlternatePositionIdx($posIdx, $currentSide);
+                $body    = json_encode(['category' => 'linear', 'symbol' => $symbol, 'positionIdx' => $altIdx, 'tpslMode' => 'Full', 'stopLoss' => (string)$price, 'slTriggerBy' => 'MarkPrice', 'slOrderType' => 'Market']);
+                $this->log("setBreakevenStopLoss retry → positionIdx {$posIdx}→{$altIdx}");
+                $response = $this->requestWithRetry('POST', $baseUrl . '/v5/position/trading-stop', [
+                    'headers' => $this->getAuthHeaders('POST', '/v5/position/trading-stop', $emptyParams, $settings, $body),
+                    'body'    => $body,
+                ]);
+                $data    = $response->toArray(false);
+                $retCode = $data['retCode'] ?? -1;
+            }
+
+            if ($retCode === 0) {
                 return ['ok' => true, 'result' => $data['result'] ?? []];
             }
             return ['ok' => false, 'error' => $data['retMsg'] ?? 'Unknown error', 'retCode' => $data['retCode'] ?? null];
@@ -1883,13 +1962,35 @@ class BybitService
                     self::MARGIN_PORTFOLIO => 'Portfolio',
                     default                => $mode ?? '—',
                 };
+
+                // Try to set One-Way mode for new USDT perpetual symbols (does not affect symbols with open positions/orders)
+                $positionModeSet = false;
+                try {
+                    $bodySwitch = json_encode(['category' => 'linear', 'coin' => 'USDT', 'mode' => 0]);
+                    $respSwitch = $this->requestWithRetry('POST', $baseUrl . '/v5/position/switch-mode', [
+                        'headers' => $this->getAuthHeaders('POST', '/v5/position/switch-mode', [], $settings, $bodySwitch),
+                        'body'    => $bodySwitch,
+                    ], 1);
+                    $dataSwitch = $respSwitch->toArray(false);
+                    if (($dataSwitch['retCode'] ?? -1) === 0) {
+                        $positionModeSet = true;
+                        $this->log('testConnection: position mode set to One-Way for new USDT symbols');
+                    }
+                } catch (\Throwable $t) {
+                    $this->log('testConnection: switch-mode optional: ' . $t->getMessage());
+                }
+
                 $msg = sprintf('Bybit подключён. Сдвиг часов: %+d мс. Режим маржи: %s.', $offset, $modeLabel);
+                if ($positionModeSet) {
+                    $msg .= ' One-Way для новых символов установлен.';
+                }
                 return [
-                    'ok'          => true,
-                    'message'     => $msg,
-                    'timeOffset'  => $offset,
-                    'marginMode'  => $mode,
+                    'ok'              => true,
+                    'message'         => $msg,
+                    'timeOffset'      => $offset,
+                    'marginMode'      => $mode,
                     'marginModeLabel' => $modeLabel,
+                    'positionModeSet' => $positionModeSet,
                 ];
             }
             return ['ok' => false, 'statusCode' => $statusCode, 'retCode' => $data['retCode'] ?? null, 'retMsg' => $data['retMsg'] ?? $raw];
@@ -1908,9 +2009,11 @@ class BybitService
             $fetchedAtMs = (int)(microtime(true) * 1000);
         }
         return array_values(array_map(function ($pos) use ($fetchedAtMs): array {
+            $posIdx = isset($pos['positionIdx']) ? (int)$pos['positionIdx'] : null;
             return [
                 'symbol'           => $pos['symbol']        ?? '',
                 'side'             => $pos['side']          ?? '',
+                'positionIdx'      => $posIdx,
                 'size'             => $pos['size']          ?? '0',
                 'entryPrice'       => $pos['avgPrice']      ?? '0',
                 'markPrice'        => $pos['markPrice']     ?? '0',
