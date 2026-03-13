@@ -24,6 +24,9 @@ use App\Service\TelegramUpdateService;
 use App\Service\RotationalGridLimitOrderManager;
 use App\Service\RotationalGridService;
 use App\Service\SettingsService;
+use App\Service\Settings\ProfileContext;
+use App\Entity\TradingProfile;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -55,6 +58,8 @@ class ApiController extends AbstractController
         private readonly MemoryRetrievalService $memoryRetrieval,
         private readonly DailyReflectionService $dailyReflection,
         private readonly TelegramUpdateService $telegramUpdate,
+        private readonly ProfileContext $profileContext,
+        private readonly EntityManagerInterface $em,
     ) {}
 
     // ── Positions / orders / trades ───────────────────────────────
@@ -229,7 +234,26 @@ class ApiController extends AbstractController
     public function getBotDecisions(Request $request): JsonResponse
     {
         $limit = (int)($request->query->get('limit') ?? 100);
-        return $this->json($this->botMetrics->getRecentDecisions($limit));
+        $decisions = $this->botMetrics->getRecentDecisions($limit);
+
+        $profileInfo = null;
+        $profileId = $this->profileContext->getActiveProfileId();
+        if ($profileId !== null) {
+            $profile = $this->em->find(TradingProfile::class, $profileId);
+            if ($profile !== null) {
+                $trading = $this->settingsService->getTradingSettings();
+                $profileInfo = [
+                    'id'   => $profile->getId(),
+                    'name' => $profile->getName() . ' (' . $profile->getEnvironment() . ')',
+                    'max_managed' => (int)($trading['max_managed_positions'] ?? 10),
+                ];
+            }
+        }
+
+        return $this->json([
+            'decisions' => $decisions,
+            'profile'   => $profileInfo,
+        ]);
     }
 
     #[Route('/bot/runs', name: 'api_bot_runs', methods: ['GET'])]

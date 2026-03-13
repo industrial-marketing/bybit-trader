@@ -1508,15 +1508,24 @@ function renderBotMetrics(m) {
 
 function loadBotDecisions() {
     $.get('/api/bot/decisions?limit=50')
-        .done(function(data) {
-            renderDecisionsTable(data);
+        .done(function(resp) {
+            const data = Array.isArray(resp) ? resp : (resp.decisions || []);
+            const profile = resp && !Array.isArray(resp) ? resp.profile : null;
+            renderDecisionsTable(data, profile);
         })
         .fail(function() {
             $('#decisions-table tbody').html('<tr><td colspan="9" class="loading">Ошибка загрузки</td></tr>');
+            $('#trace-profile-badge').text('').hide();
         });
 }
 
-function renderDecisionsTable(data) {
+function renderDecisionsTable(data, profile) {
+    const $badge = $('#trace-profile-badge');
+    if (profile && profile.name) {
+        $badge.html('<i class="bi bi-person-badge"></i> ' + profile.name + ' (max <strong>' + profile.max_managed + '</strong> pos)').show();
+    } else {
+        $badge.text('').hide();
+    }
     if (!data || data.length === 0) {
         $('#decisions-table tbody').html('<tr><td colspan="9" class="loading">Нет данных о решениях</td></tr>');
         return;
