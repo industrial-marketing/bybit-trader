@@ -101,6 +101,7 @@ function loadSettings() {
             // Trading settings
             if (data.trading) {
                 $('#trading-required-margin-mode').val(data.trading.required_margin_mode || 'auto');
+                $('#trading-bybit-position-mode').val(data.trading.bybit_position_mode || 'one_way');
                 $('#trading-max-position').val(data.trading.max_position_usdt || '');
                 $('#trading-min-position').val(data.trading.min_position_usdt ?? '10');
                 $('#trading-min-leverage').val(data.trading.min_leverage || '');
@@ -262,6 +263,7 @@ function saveTradingSettings() {
     const settings = {
         trading: {
             required_margin_mode: $('#trading-required-margin-mode').val() || 'auto',
+            bybit_position_mode: $('#trading-bybit-position-mode').val() || 'one_way',
             max_position_usdt: parseFloat($('#trading-max-position').val() || '0'),
             min_position_usdt: parseFloat($('#trading-min-position').val() || '10'),
             min_leverage: parseInt($('#trading-min-leverage').val() || '1', 10),

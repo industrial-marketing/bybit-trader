@@ -127,6 +127,14 @@
                 <span class="hint">For UTA, mode is set at account level. Cross — shared margin; Isolated — per-position.</span>
             </div>
             <div class="form-group">
+                <label>Position mode (Bybit):</label>
+                <select id="trading-bybit-position-mode" name="bybit_position_mode">
+                    <option value="one_way">One-Way Mode</option>
+                    <option value="hedge">Hedge Mode</option>
+                </select>
+                <span class="hint">Должно совпадать с настройкой на Bybit. One-Way — одна позиция на символ; Hedge — отдельные Long/Short.</span>
+            </div>
+            <div class="form-group">
                 <label>Max margin (USDT):</label>
                 <input type="number" step="0.01" min="0" id="trading-max-position" name="max_position_usdt" placeholder="e.g. 100">
                 <span class="hint">Max margin per position. Trade size (entry) = margin × leverage.</span>

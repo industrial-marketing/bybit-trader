@@ -166,6 +166,7 @@ class DatabaseSettingsSource implements SettingsSourceInterface
                 'min_leverage'             => 1,
                 'max_leverage'             => 5,
                 'required_margin_mode'     => 'auto',
+                'bybit_position_mode'      => 'one_way',
                 'position_mode'            => 'single',
                 'max_layers'               => 3,
                 'layer_size_usdt'          => 50.0,

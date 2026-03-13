@@ -28,6 +28,19 @@ class BybitService
     public const MARGIN_ISOLATED  = 'ISOLATED_MARGIN';
     public const MARGIN_PORTFOLIO = 'PORTFOLIO_MARGIN';
 
+    /**
+     * positionIdx: 0 = one-way mode; 1 = Buy side hedge; 2 = Sell side hedge.
+     */
+    private function getPositionIdx(string $positionSide): int
+    {
+        $trading = $this->settingsService->getTradingSettings();
+        $mode    = $trading['bybit_position_mode'] ?? 'one_way';
+        if ($mode === 'hedge') {
+            return strtoupper($positionSide) === 'BUY' ? 1 : 2;
+        }
+        return 0;
+    }
+
     public function __construct(
         private readonly HttpClientInterface $httpClient,
         private readonly SettingsService    $settingsService
@@ -1441,7 +1454,8 @@ class BybitService
             }
 
             // Place market order
-            $bodyOrder = json_encode(['category' => 'linear', 'symbol' => $symbol, 'side' => $side, 'orderType' => 'Market', 'qty' => (string)$qty, 'positionIdx' => 0]);
+            $posIdx = $this->getPositionIdx($side);
+            $bodyOrder = json_encode(['category' => 'linear', 'symbol' => $symbol, 'side' => $side, 'orderType' => 'Market', 'qty' => (string)$qty, 'positionIdx' => $posIdx]);
             $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
                 'headers' => $this->getAuthHeaders('POST', '/v5/order/create', $emptyParams, $settings, $bodyOrder),
                 'body'    => $bodyOrder,
@@ -1550,8 +1564,10 @@ class BybitService
         $baseUrl   = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
         $emptyParams = [];
 
+        $trading   = $this->settingsService->getTradingSettings();
+        $posIdx    = $this->getPositionIdx($currentSide);
         try {
-            $bodyOrder = json_encode(['category' => 'linear', 'symbol' => $symbol, 'side' => $orderSide, 'orderType' => 'Market', 'qty' => (string)$qty, 'reduceOnly' => true, 'positionIdx' => 0]);
+            $bodyOrder = json_encode(['category' => 'linear', 'symbol' => $symbol, 'side' => $orderSide, 'orderType' => 'Market', 'qty' => (string)$qty, 'reduceOnly' => true, 'positionIdx' => $posIdx]);
             $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
                 'headers' => $this->getAuthHeaders('POST', '/v5/order/create', $emptyParams, $settings, $bodyOrder),
                 'body'    => $bodyOrder,
@@ -1648,6 +1664,7 @@ class BybitService
                 'body'    => $bodySetLev,
             ]);
 
+            $posIdx = $this->getPositionIdx($side);
             $orderPayload = [
                 'category'    => 'linear',
                 'symbol'     => $symbol,
@@ -1656,7 +1673,7 @@ class BybitService
                 'qty'        => (string)$qty,
                 'price'      => (string)$priceRounded,
                 'timeInForce'=> 'GTC',
-                'positionIdx'=> 0,
+                'positionIdx'=> $posIdx,
             ];
             if ($orderLinkId !== null && $orderLinkId !== '') {
                 $orderPayload['orderLinkId'] = substr($orderLinkId, 0, 36);
@@ -1720,6 +1737,8 @@ class BybitService
         $orderSide = strtoupper($currentSide) === 'BUY' ? 'SELL' : 'BUY';
         $baseUrl   = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
         $emptyParams = [];
+        $trading   = $this->settingsService->getTradingSettings();
+        $posIdx    = $this->getPositionIdx($currentSide);
 
         $orderPayload = [
             'category'    => 'linear',
@@ -1730,7 +1749,7 @@ class BybitService
             'price'      => (string)$priceRounded,
             'timeInForce'=> 'GTC',
             'reduceOnly' => true,
-            'positionIdx'=> 0,
+            'positionIdx'=> $posIdx,
         ];
         if ($orderLinkId !== null && $orderLinkId !== '') {
             $orderPayload['orderLinkId'] = substr($orderLinkId, 0, 36);
@@ -1811,9 +1830,11 @@ class BybitService
         $baseUrl     = $settings['base_url'] ?? 'https://api-testnet.bybit.com';
         $price       = max(0.0001, $entryPrice);
         $emptyParams = [];
+        $trading    = $this->settingsService->getTradingSettings();
+        $posIdx     = $this->getPositionIdx($currentSide);
 
         try {
-            $body = json_encode(['category' => 'linear', 'symbol' => $symbol, 'positionIdx' => 0, 'tpslMode' => 'Full', 'stopLoss' => (string)$price, 'slTriggerBy' => 'MarkPrice', 'slOrderType' => 'Market']);
+            $body = json_encode(['category' => 'linear', 'symbol' => $symbol, 'positionIdx' => $posIdx, 'tpslMode' => 'Full', 'stopLoss' => (string)$price, 'slTriggerBy' => 'MarkPrice', 'slOrderType' => 'Market']);
             $response = $this->requestWithRetry('POST', $baseUrl . '/v5/position/trading-stop', [
                 'headers' => $this->getAuthHeaders('POST', '/v5/position/trading-stop', $emptyParams, $settings, $body),
                 'body'    => $body,

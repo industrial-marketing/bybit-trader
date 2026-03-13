@@ -37,6 +37,7 @@ final class SettingsDefaults
                 'max_leverage'             => 5,
                 'required_margin_mode'     => 'auto',
                 'position_mode'            => 'single',
+                'bybit_position_mode'      => 'one_way',  // one_way | hedge — match your Bybit account
                 'max_layers'               => 3,
                 'layer_size_usdt'          => 50.0,
                 'grid_step_pct'            => 5.0,
