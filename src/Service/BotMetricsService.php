@@ -21,6 +21,9 @@ class BotMetricsService
         'average_in',
     ];
 
+    // Auto-open events (proposals for new positions) — counted in proposed/executed
+    private const AUTO_OPEN_TYPE = 'auto_open';
+
     public function __construct(private readonly BotHistoryService $botHistory) {}
 
     /**
@@ -56,6 +59,29 @@ class BotMetricsService
                 $invalidResponses++;
                 continue;
             }
+
+            // Handle auto_open (new position proposals)
+            if ($type === self::AUTO_OPEN_TYPE) {
+                $proposed++;
+                $action = 'AUTO_OPEN';
+                if (!isset($byAction[$action])) {
+                    $byAction[$action] = [
+                        'proposed' => 0, 'executed' => 0, 'skipped' => 0, 'failed' => 0,
+                        'wins' => 0, 'losses' => 0, 'total_pnl' => 0.0,
+                    ];
+                }
+                $byAction[$action]['proposed']++;
+                $ok = (bool)($e['ok'] ?? false);
+                if ($ok) {
+                    $executed++;
+                    $byAction[$action]['executed']++;
+                } else {
+                    $failed++;
+                    $byAction[$action]['failed']++;
+                }
+                continue;
+            }
+
             if (!in_array($type, self::MANAGE_TYPES, true)) {
                 continue;
             }
@@ -140,7 +166,7 @@ class BotMetricsService
     public function getRecentDecisions(int $limit = 100): array
     {
         $traceTypes = array_merge(self::MANAGE_TYPES, [
-            'llm_invalid_response', 'pending_rejected', 'auto_open',
+            'llm_invalid_response', 'pending_rejected', 'auto_open', 'proposal_flow',
         ]);
 
         $events    = $this->botHistory->getRecentEvents(14);
