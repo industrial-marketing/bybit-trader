@@ -58,11 +58,17 @@ class DatabaseSettingsSource implements SettingsSourceInterface
         $bybit = $defaults['bybit'];
         $ex = $profile->getExchangeIntegration();
         if ($ex !== null) {
+            $baseUrl = $ex->getBaseUrl();
+            if ($baseUrl === null || $baseUrl === '') {
+                $baseUrl = $ex->isTestnetMode()
+                    ? 'https://api-testnet.bybit.com'
+                    : 'https://api.bybit.com';
+            }
             $bybit = [
                 'api_key'    => $ex->getApiKey(),
                 'api_secret' => $ex->getApiSecret(),
                 'testnet'    => $ex->isTestnetMode(),
-                'base_url'   => $ex->getBaseUrl() ?? $bybit['base_url'],
+                'base_url'   => $baseUrl,
             ];
         }
         // Do NOT override with env — each profile has its own Bybit keys; env would force all users to same account

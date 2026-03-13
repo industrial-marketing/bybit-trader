@@ -41,6 +41,13 @@
                 </div>
                 {% if p.isDefault %}
                     <span style="font-size:0.8rem; color:var(--brand-orange);"><i class="bi bi-star-fill"></i> Default</span>
+                {% else %}
+                    <form method="post" action="{{ path('profiles_set_default', {id: p.id}) }}" style="display:inline;">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token('profile_default_' ~ p.id) }}">
+                        <button type="submit" class="btn-link" style="font-size:0.8rem; color:var(--muted); padding:0; border:none; background:none; cursor:pointer;" title="Set as default (loads on login)">
+                            <i class="bi bi-star"></i> Set default
+                        </button>
+                    </form>
                 {% endif %}
                 <div style="margin-top:16px; display:flex; gap:8px; flex-wrap:wrap;">
                     <a href="{{ path('profiles_edit', {id: p.id}) }}" class="btn-secondary" style="font-size:0.85rem;">
@@ -66,6 +73,9 @@
 
     <p style="margin-top:24px; font-size:0.9rem; color:var(--muted);">
         <i class="bi bi-info-circle"></i> Configure API keys and trading parameters in <a href="{{ path('settings') }}">Settings</a> for the active profile.
+    </p>
+    <p style="margin-top:8px; font-size:0.85rem; color:var(--muted);">
+        <i class="bi bi-robot"></i> Bot (cron): without <code>ACTIVE_PROFILE_ID</code> in .env, all approved profiles run. Set <code>ACTIVE_PROFILE_ID=1</code> (or your profile ID) to run only one.
     </p>
 </div>
 {% endblock %}

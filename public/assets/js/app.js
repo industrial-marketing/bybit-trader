@@ -1087,7 +1087,10 @@ function submitOpenOrder() {
         contentType: 'application/json',
         data: JSON.stringify({ symbol: symbol, side: side, positionSizeUSDT: positionSizeUSDT, leverage: leverage }),
         success: function(res) {
-            if (res && res.ok !== false) {
+            if (res && res.skipped) {
+                const reason = res.skipReason || 'below_min_position';
+                $('#modal-message').text('Skipped: ' + reason + (res.minPositionUSDT ? ' (min ' + res.minPositionUSDT + ' USDT)' : '')).addClass('error');
+            } else if (res && res.ok !== false) {
                 if (res.positionVerified === true) {
                     $('#modal-message').text('Position opened.').addClass('success');
                 } else {

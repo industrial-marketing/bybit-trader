@@ -713,8 +713,9 @@ class BotTickCommand extends Command
                     $result = $this->bybitService->placeOrder($symbol, $side, $size, $lev);
 
                     $ok        = $result['ok'] ?? false;
-                    $statusTag = $ok ? '<info>[OK]</info>' : '<error>[ERR]</error>';
-                    $io->writeln("  {$statusTag} {$symbol} {$side} {$size}$ lev={$lev} conf={$confidence}%");
+                    $skipped   = !empty($result['skipped']);
+                    $statusTag = $skipped ? '<comment>[SKIP]</comment>' : ($ok ? '<info>[OK]</info>' : '<error>[ERR]</error>');
+                    $io->writeln("  {$statusTag} {$symbol} {$side} {$size}$ lev={$lev} conf={$confidence}%" . ($skipped ? ' (' . ($result['skipReason'] ?? 'skipped') . ')' : ''));
                     if (!$ok && !empty($result['error'])) {
                         $io->writeln("        error: " . $result['error']);
                     }
@@ -725,6 +726,8 @@ class BotTickCommand extends Command
                         'confidence'       => $confidence,
                         'reason'           => $p['reason'] ?? '',
                         'ok'               => $ok,
+                        'skipped'          => $skipped,
+                        'skipReason'       => $result['skipReason'] ?? null,
                         'error'            => $result['error'] ?? null,
                     ];
                     $this->botHistory->log('auto_open', $event);
@@ -738,8 +741,16 @@ class BotTickCommand extends Command
                             'error'  => $result['error'] ?? null,
                         ]);
                     }
+                    if ($skipped) {
+                        $this->botHistory->log('proposal_flow', [
+                            'step'   => 'execution_skipped',
+                            'reason' => "{$symbol}: " . ($result['skipReason'] ?? 'below_min_position'),
+                            'symbol' => $symbol,
+                            'skip_reason' => $result['skipReason'] ?? null,
+                        ]);
+                    }
 
-                    if ($ok) {
+                    if ($ok && !$skipped) {
                         $slots--;
                         $openSymbols[$symbol] = true;
                     }

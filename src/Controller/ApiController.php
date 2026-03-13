@@ -709,6 +709,7 @@ class ApiController extends AbstractController
                     }
                     $lev    = (int)($p['leverage'] ?? 1);
                     $result = $this->bybitService->placeOrder($symbol, $side, $size, $lev);
+                    $skipped = !empty($result['skipped']);
 
                     $event = [
                         'symbol'          => $symbol, 'side' => $side,
@@ -716,12 +717,14 @@ class ApiController extends AbstractController
                         'confidence'      => $confidence,
                         'reason'          => $p['reason'] ?? '',
                         'ok'              => $result['ok']    ?? false,
+                        'skipped'         => $skipped,
+                        'skipReason'      => $result['skipReason'] ?? null,
                         'error'           => $result['error'] ?? null,
                     ];
                     $this->botHistory->log('auto_open', $event);
                     $opened[] = $event;
 
-                    if ($result['ok'] ?? false) {
+                    if (($result['ok'] ?? false) && !$skipped) {
                         $slots--;
                         $openSymbols[$symbol] = true;
                     }
@@ -786,6 +789,7 @@ class ApiController extends AbstractController
             'symbol' => $symbol, 'side' => $side,
             'positionSizeUSDT' => $size, 'leverage' => $lev,
             'ok' => $result['ok'] ?? false, 'error' => $result['error'] ?? null,
+            'skipped' => $result['skipped'] ?? false, 'skipReason' => $result['skipReason'] ?? null,
             'orderId' => $result['orderId'] ?? null, 'positionVerified' => $result['positionVerified'] ?? false,
         ]);
 

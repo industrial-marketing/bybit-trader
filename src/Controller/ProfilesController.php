@@ -78,6 +78,7 @@ class ProfilesController extends AbstractController
             $exchange = new ExchangeIntegration();
             $exchange->setTradingProfile($profile);
             $exchange->setTestnetMode($profile->getEnvironment() === 'testnet');
+            $exchange->setBaseUrl($profile->getEnvironment() === 'mainnet' ? 'https://api.bybit.com' : 'https://api-testnet.bybit.com');
 
             $botSettings = new BotSettings();
             $botSettings->setTradingProfile($profile);
@@ -139,6 +140,7 @@ class ProfilesController extends AbstractController
             $ex = $profile->getExchangeIntegration();
             if ($ex !== null) {
                 $ex->setTestnetMode($profile->getEnvironment() === 'testnet');
+                $ex->setBaseUrl($profile->getEnvironment() === 'mainnet' ? 'https://api.bybit.com' : 'https://api-testnet.bybit.com');
                 $ex->touch();
             }
 
@@ -153,6 +155,39 @@ class ProfilesController extends AbstractController
             'name' => $profile->getName(),
             'environment' => $profile->getEnvironment(),
         ]);
+    }
+
+    #[Route('/{id}/default', name: 'profiles_set_default', requirements: ['id' => '\d+'], methods: ['POST'])]
+    public function setDefault(Request $request, int $id): Response
+    {
+        if (!$this->isCsrfTokenValid('profile_default_' . $id, $request->request->get('_csrf_token'))) {
+            $this->addFlash('error', 'Invalid request.');
+            return $this->redirectToRoute('profiles_list');
+        }
+        $user = $this->getUser();
+        if ($user === null) {
+            return $this->redirectToRoute('login');
+        }
+
+        $profile = $this->em->getRepository(TradingProfile::class)->find($id);
+        if ($profile === null || $profile->getUser()->getId() !== $user->getId()) {
+            $this->addFlash('error', 'Profile not found.');
+            return $this->redirectToRoute('profiles_list');
+        }
+
+        foreach ($this->em->getRepository(TradingProfile::class)->findBy(['user' => $user]) as $p) {
+            $p->setIsDefault($p->getId() === $id);
+        }
+        $this->em->flush();
+
+        $request = $this->requestStack->getCurrentRequest();
+        if ($request !== null && $request->hasSession()) {
+            $request->getSession()->set('active_profile_id', $id);
+        }
+        $this->profileContext->setActiveProfileId($id);
+
+        $this->addFlash('success', 'Default profile: ' . $profile->getName());
+        return $this->redirectToRoute('profiles_list');
     }
 
     #[Route('/{id}/switch', name: 'profiles_switch', requirements: ['id' => '\d+'], methods: ['POST'])]
