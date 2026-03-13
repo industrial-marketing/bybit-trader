@@ -867,12 +867,16 @@ function runBotTick() {
             if (typeof window.showToast === 'function') {
                 window.showToast(msg, res && res.skipped ? 'info' : 'success');
             }
-            // Лёгкий визуальный фидбек через текст кнопки
             $btns.text('Done');
-            // Обновим данные на дашборде после действий бота
             loadDashboard();
             loadBotDecisions();
             loadBotMetrics();
+
+            // Показать модалку диагностики с логом тика (ручной запуск)
+            if (res && res.tick_log && Array.isArray(res.tick_log) && res.tick_log.length > 0) {
+                showTickDiagnosticsModal(res.tick_log, res);
+            }
+
             setTimeout(function() {
                 $btns.text(originalText);
             }, 1500);
@@ -886,6 +890,13 @@ function runBotTick() {
                 window.showToast('Error running bot', 'error');
             }
             $btns.text('Error');
+            // Показать диагностику и при ошибке (если есть tick_log в response)
+            try {
+                const res = xhr.responseJSON;
+                if (res && res.tick_log && Array.isArray(res.tick_log) && res.tick_log.length > 0) {
+                    showTickDiagnosticsModal(res.tick_log, res);
+                }
+            } catch (e) { /* ignore */ }
             setTimeout(function() {
                 $btns.text(originalText);
             }, 2000);
@@ -895,6 +906,32 @@ function runBotTick() {
         }
     });
 }
+
+function showTickDiagnosticsModal(tickLog, fullResponse) {
+    const logText = Array.isArray(tickLog) ? tickLog.join('\n') : String(tickLog);
+    $('#tick-diagnostics-output').text(logText);
+    $('#tick-diagnostics-modal').show();
+
+    // Copy button
+    $('#tick-diagnostics-copy').off('click').on('click', function() {
+        const text = logText + '\n\n---\nFull response (JSON):\n' + JSON.stringify(fullResponse || {}, null, 2);
+        navigator.clipboard.writeText(text).then(function() {
+            if (typeof window.showToast === 'function') {
+                window.showToast('Скопировано в буфер обмена', 'success');
+            } else {
+                alert('Скопировано');
+            }
+        }).catch(function() {
+            if (typeof window.showToast === 'function') {
+                window.showToast('Не удалось скопировать', 'error');
+            }
+        });
+    });
+}
+
+$(document).on('click', '#tick-diagnostics-close, #tick-diagnostics-modal .modal-backdrop', function() {
+    $('#tick-diagnostics-modal').hide();
+});
 
 function loadBotHistory() {
     $.get('/api/bot/history')

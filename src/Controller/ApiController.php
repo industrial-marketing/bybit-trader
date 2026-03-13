@@ -244,23 +244,30 @@ class ApiController extends AbstractController
     #[Route('/bot/tick', name: 'api_bot_tick', methods: ['POST', 'GET'])]
     public function botTick(): JsonResponse
     {
+        $log = [];
+        $addLog = function (string $line) use (&$log): void {
+            $log[] = '[' . date('H:i:s') . '] ' . $line;
+        };
+
         // ── Kill-switch ──────────────────────────────────────────────
         if (!$this->riskGuard->isTradingEnabled()) {
+            $addLog('SKIP: Торговля отключена (kill-switch).');
             return $this->json([
                 'ok' => false, 'blocked' => true, 'reason' => 'kill_switch',
                 'message' => 'Торговля отключена (kill-switch).',
-                'managed' => [], 'opened' => [],
+                'managed' => [], 'opened' => [], 'tick_log' => $log,
             ]);
         }
 
         // ── Circuit Breaker ──────────────────────────────────────────
         $cbStatus = $this->circuitBreaker->getStatus();
         if ($cbStatus['is_open']) {
+            $addLog('SKIP: Circuit breaker open — ' . ($cbStatus['message'] ?? ''));
             return $this->json([
                 'ok' => false, 'blocked' => true, 'reason' => 'circuit_breaker',
                 'message' => $cbStatus['message'],
                 'circuit_breaker' => $cbStatus,
-                'managed' => [], 'opened' => [],
+                'managed' => [], 'opened' => [], 'tick_log' => $log,
             ]);
         }
 
@@ -274,11 +281,12 @@ class ApiController extends AbstractController
         // ── Daily loss limit ─────────────────────────────────────────
         $dailyCheck = $this->riskGuard->checkDailyLossLimit();
         if (!$dailyCheck['ok']) {
+            $addLog('SKIP: Daily loss limit — ' . $dailyCheck['message']);
             $this->alertService->alertRiskLimit('daily_loss_limit', ['message' => $dailyCheck['message']]);
             return $this->json([
                 'ok' => false, 'blocked' => true, 'reason' => 'daily_loss_limit',
                 'message' => $dailyCheck['message'],
-                'managed' => [], 'opened' => [],
+                'managed' => [], 'opened' => [], 'tick_log' => $log,
             ]);
         }
 
@@ -291,17 +299,20 @@ class ApiController extends AbstractController
         $runId = $this->botRunService->tryStart($botTimeframe);
         if ($runId === null) {
             $bucket = $this->botRunService->currentBucket($botTimeframe);
+            $addLog("SKIP: Bucket {$bucket} ({$tfLabel}) уже выполняется или завершён.");
             return $this->json([
                 'ok'      => true,
                 'skipped' => true,
                 'reason'  => 'timeframe_bucket_done_or_running',
                 'message' => "Тик для окна {$bucket} ({$tfLabel}) уже выполняется или завершён.",
-                'managed' => [], 'opened' => [],
+                'managed' => [], 'opened' => [], 'tick_log' => $log,
             ]);
         }
 
+        $addLog("Run ID: {$runId} | Timeframe: {$tfLabel}");
         $positions = $this->bybitService->getPositions();
         $openCount = count($positions);
+        $addLog("Open positions: {$openCount}");
 
         // ── Enrich positions with kline history ──────────────────────
         $posCount          = count($positions);
@@ -334,6 +345,7 @@ class ApiController extends AbstractController
         // ── Data freshness check ──────────────────────────────────────
         $freshnessCheck = $this->riskGuard->checkDataFreshness($positions);
         if (!$freshnessCheck['ok']) {
+            $addLog('SKIP: Stale data — ' . $freshnessCheck['message']);
             $this->botHistory->log('stale_data_skip', [
                 'age_sec'     => $freshnessCheck['age_sec'],
                 'max_age_sec' => $freshnessCheck['max_age_sec'],
@@ -344,10 +356,13 @@ class ApiController extends AbstractController
             return $this->json([
                 'ok' => false, 'blocked' => true, 'reason' => 'stale_data',
                 'message' => $freshnessCheck['message'],
-                'managed' => [], 'opened' => [],
+                'managed' => [], 'opened' => [], 'tick_log' => $log,
             ]);
         }
         $dataFreshnessSec = (float)($freshnessCheck['age_sec'] ?? 0.0);
+        if ($dataFreshnessSec > 5.0) {
+            $addLog(sprintf('Data freshness: %.1fs (limit %ds)', $dataFreshnessSec, $freshnessCheck['max_age_sec'] ?? 0));
+        }
 
         // ── Grid rotation (rotational_grid positions) ─────────────────────
         $positionMode     = $trading['position_mode'] ?? 'single';
@@ -420,6 +435,8 @@ class ApiController extends AbstractController
         $manageDecisions = $this->chatGPTService->manageOpenPositions(
             $this->bybitService, $positions, $dataFreshnessSec, $strategySignalsBySymbol, $orchCtx
         );
+        $addLog('[MANAGE] Managing open positions…');
+        $addLog('  LLM decisions: ' . count($manageDecisions));
 
         if (empty($manageDecisions) && $posCount > 0) {
             $this->botHistory->log('llm_failure', ['reason' => 'empty_decisions', 'positions_count' => $posCount]);
@@ -491,6 +508,7 @@ class ApiController extends AbstractController
 
             // ── Locked ───────────────────────────────────────────────
             if ($this->positionLockService->isLocked($symbol, $side)) {
+                $addLog("  [SKIP locked] {$symbol} {$side} → {$action}");
                 $managed[] = array_merge($traceFields, [
                     'symbol' => $symbol, 'side' => $side, 'action' => $action,
                     'ok' => false, 'skipped' => true, 'skip_reason' => 'locked',
@@ -500,6 +518,7 @@ class ApiController extends AbstractController
 
             // ── Cooldown ─────────────────────────────────────────────
             if (!$this->riskGuard->isActionAllowed($symbol, $recentEvents)) {
+                $addLog("  [SKIP cooldown] {$symbol} {$side} → {$action}");
                 $managed[] = array_merge($traceFields, [
                     'symbol' => $symbol, 'side' => $side, 'action' => $action,
                     'ok' => false, 'skipped' => true, 'skip_reason' => 'cooldown',
@@ -509,6 +528,7 @@ class ApiController extends AbstractController
 
             // ── Rotational grid: LLM не управляет, grid сам добор/разгрузка ──
             if (isset($rotationalSymbols["{$symbol}|{$side}"])) {
+                $addLog("  [SKIP rotational] {$symbol} {$side} → {$action}");
                 $managed[] = array_merge($traceFields, [
                     'symbol' => $symbol, 'side' => $side, 'action' => $action,
                     'ok' => true, 'skipped' => true, 'skip_reason' => 'rotational_grid',
@@ -631,11 +651,21 @@ class ApiController extends AbstractController
                 }
             }
 
+            $ok = $result['ok'] ?? false;
+            $statusTag = $ok ? '[OK]' : '[ERR]';
+            if (!empty($result['skipped'])) {
+                $statusTag = '[SKIP]';
+            }
+            $addLog("  {$statusTag} {$symbol} {$side} → {$action}" . ($skipReason ? " ({$skipReason})" : ''));
+            if (!$ok && !empty($result['error'])) {
+                $addLog("        error: " . ($result['error'] ?? ''));
+            }
+
             $payload = array_merge($traceFields, [
                 'symbol'              => $symbol,
                 'side'                => $side,
                 'action'              => $action,
-                'ok'                  => $result['ok']    ?? false,
+                'ok'                  => $ok,
                 'error'               => $result['error'] ?? null,
                 'skipped'             => !empty($result['skipped']),
                 'skip_reason'         => $skipReason,
@@ -663,15 +693,18 @@ class ApiController extends AbstractController
         $opened = [];
 
         if ($autoEnabled) {
+            $addLog('[AUTO-OPEN] section start');
             $exposureCheck = $this->riskGuard->checkMaxExposure($positions);
 
             if (!$exposureCheck['ok']) {
                 $this->alertService->alertRiskLimit('max_exposure', ['message' => $exposureCheck['message']]);
+                $addLog('  Max exposure reached: ' . ($exposureCheck['message'] ?? ''));
             }
 
             $slots = $exposureCheck['ok']
                 ? max(0, min(max(0, $minPositions - $openCount), max(0, $maxManaged - $openCount)))
                 : 0;
+            $addLog("  Available slots: {$slots} (minPos={$minPositions} open={$openCount} maxManaged={$maxManaged})");
 
             if ($slots > 0) {
                 $orchCtx = [
@@ -680,6 +713,7 @@ class ApiController extends AbstractController
                 ];
                 $proposals   = $this->chatGPTService->getProposals($this->bybitService, $positions, $orchCtx);
                 $openSymbols = array_fill_keys(array_column($positions, 'symbol'), true);
+                $addLog('  Proposals received: ' . count($proposals) . ' (symbols: ' . implode(', ', array_column($proposals, 'symbol')) . ')');
 
                 $positionMode  = $trading['position_mode'] ?? 'single';
                 $layerSizeUsdt = 0.0;
@@ -696,6 +730,8 @@ class ApiController extends AbstractController
                     $symbol     = $p['symbol']     ?? '';
                     $confidence = (int)($p['confidence'] ?? 0);
                     if ($symbol === '' || $confidence < 80 || isset($openSymbols[$symbol])) {
+                        $skipR = $symbol === '' ? 'empty_symbol' : ($confidence < 80 ? "conf_{$confidence}_lt_80" : 'already_open');
+                        $addLog("  [SKIP] {$symbol}: {$skipR}");
                         continue;
                     }
 
@@ -709,6 +745,11 @@ class ApiController extends AbstractController
                     }
                     $lev    = (int)($p['leverage'] ?? 1);
                     $result = $this->bybitService->placeOrder($symbol, $side, $size, $lev);
+                    $okOpen = $result['ok'] ?? false;
+                    $addLog("  " . ($okOpen ? '[OK]' : '[ERR]') . " {$symbol} {$side} {$size}$ lev={$lev} conf={$confidence}%");
+                    if (!$okOpen && !empty($result['error'])) {
+                        $addLog("        error: " . ($result['error'] ?? ''));
+                    }
 
                     $event = [
                         'symbol'          => $symbol, 'side' => $side,
@@ -749,10 +790,13 @@ class ApiController extends AbstractController
 
         $this->botRunService->finish($runId, 'done');
 
+        $addLog('[DONE] Managed: ' . $managedCount . ', Opened: ' . $openedCount);
+
         return $this->json([
             'ok' => true, 'message' => 'Bot tick executed', 'summary' => $summary,
             'run_id'  => $runId,
             'managed' => $managed, 'opened' => $opened, 'openPositionsBefore' => $openCount,
+            'tick_log' => $log,
         ]);
     }
 
