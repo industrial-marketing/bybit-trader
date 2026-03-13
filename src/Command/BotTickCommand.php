@@ -640,6 +640,24 @@ class BotTickCommand extends Command
 
             $io->writeln("<comment>Available slots:</comment> {$slots}");
 
+            // Log slots calculation for tracing when proposals don't proceed
+            if ($slots <= 0) {
+                $this->botHistory->log('proposal_flow', [
+                    'step'   => 'slots_zero',
+                    'reason' => sprintf(
+                        'slots=0: minPositions=%d openCount=%d maxManaged=%d exposure_ok=%s',
+                        $minPositions,
+                        $openCount,
+                        $maxManaged,
+                        $exposureCheck['ok'] ? 'yes' : 'no'
+                    ),
+                    'min_positions' => $minPositions,
+                    'open_count'    => $openCount,
+                    'max_managed'   => $maxManaged,
+                    'exposure_ok'   => $exposureCheck['ok'],
+                ]);
+            }
+
             if ($slots > 0) {
                 $orchCtx = [
                     'exposure_check'  => ['ok' => $exposureCheck['ok'], 'total_exposure' => $exposureCheck['total_exposure'] ?? 0, 'max_exposure' => (float)($trading['max_total_exposure_usdt'] ?? 0)],
@@ -647,6 +665,14 @@ class BotTickCommand extends Command
                 ];
                 $proposals   = $this->chatGPTService->getProposals($this->bybitService, $positions, $orchCtx);
                 $openSymbols = array_fill_keys(array_column($positions, 'symbol'), true);
+
+                $this->botHistory->log('proposal_flow', [
+                    'step'         => 'proposals_received',
+                    'reason'       => sprintf('got %d proposals, slots=%d', count($proposals), $slots),
+                    'count'        => count($proposals),
+                    'slots'        => $slots,
+                    'proposal_symbols' => array_column($proposals, 'symbol'),
+                ]);
 
                 $positionMode   = $trading['position_mode'] ?? 'single';
                 $layerSizeUsdt  = 0.0;
@@ -663,6 +689,15 @@ class BotTickCommand extends Command
                     $symbol     = $p['symbol']     ?? '';
                     $confidence = (int) ($p['confidence'] ?? 0);
                     if ($symbol === '' || $confidence < 80 || isset($openSymbols[$symbol])) {
+                        $skipReason = $symbol === '' ? 'empty_symbol'
+                            : ($confidence < 80 ? "confidence_{$confidence}_lt_80" : 'symbol_already_open');
+                        $this->botHistory->log('proposal_flow', [
+                            'step'       => 'proposal_skipped',
+                            'reason'     => "{$symbol}: {$skipReason}",
+                            'symbol'     => $symbol,
+                            'confidence' => $confidence,
+                            'skip_reason'=> $skipReason,
+                        ]);
                         continue;
                     }
 
@@ -694,6 +729,15 @@ class BotTickCommand extends Command
                     ];
                     $this->botHistory->log('auto_open', $event);
                     $opened[] = $event;
+
+                    if (!$ok && !empty($result['error'])) {
+                        $this->botHistory->log('proposal_flow', [
+                            'step'   => 'execution_failed',
+                            'reason' => "{$symbol}: " . ($result['error'] ?? 'unknown'),
+                            'symbol' => $symbol,
+                            'error'  => $result['error'] ?? null,
+                        ]);
+                    }
 
                     if ($ok) {
                         $slots--;

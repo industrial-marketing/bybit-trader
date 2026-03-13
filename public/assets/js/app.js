@@ -1522,7 +1522,10 @@ function renderDecisionsTable(data) {
     data.forEach(function(d) {
         const ts = d.timestamp ? new Date(d.timestamp).toLocaleString('ru-RU') : '—';
         const sym = d.symbol || '—';
-        const action = d.action || (d.type || '—');
+        let action = d.action || (d.type || '—');
+        if (d.type === 'proposal_flow') {
+            action = (d.step || '') + ': ' + (d.reason || '');
+        }
         const conf = d.confidence != null ? d.confidence + '%' : '—';
         const risk = d.risk || '—';
         const riskColor = risk === 'low' ? '#3fb950' : risk === 'high' ? '#f85149' : '#d29922';

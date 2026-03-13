@@ -655,6 +655,14 @@ JSON;
                 $candidates
             );
 
+            $this->botHistory->log('proposal_flow', [
+                'step'                => 'orchestrator_result',
+                'reason'              => $orch === null ? 'orch_null'
+                    : (!$orch['can_open_new'] ? 'can_open_new_false' : (empty($orch['candidates_to_analyze']) ? 'candidates_empty' : 'ok')),
+                'orch'                => $orch !== null ? ['can_open_new' => $orch['can_open_new'], 'candidates_count' => count($orch['candidates_to_analyze'] ?? [])] : null,
+                'candidates_total'    => count($candidates),
+            ]);
+
             if ($orch !== null && $orch['can_open_new'] && !empty($orch['candidates_to_analyze'])) {
                 $toAnalyze = $orch['candidates_to_analyze'];
                 $proposals = [];
@@ -678,12 +686,23 @@ JSON;
                 }
 
                 usort($proposals, fn($a, $b) => ($b['confidence'] ?? 0) <=> ($a['confidence'] ?? 0));
+                $this->botHistory->log('proposal_flow', [
+                    'step'   => 'orchestrator_proposals',
+                    'reason' => sprintf('cascaded: %d proposals (conf>=70)', count($proposals)),
+                    'count'  => count($proposals),
+                ]);
                 return $proposals;
             }
         }
 
         // Fallback: single batch (for API preview or when orchestrator/cascaded not used)
-        return $this->getProposalsBatch($bybitService, $markets, $minLev, $maxLev, $maxNotional, $defaultSize, $minNotional, $aggr);
+        $batchProposals = $this->getProposalsBatch($bybitService, $markets, $minLev, $maxLev, $maxNotional, $defaultSize, $minNotional, $aggr);
+        $this->botHistory->log('proposal_flow', [
+            'step'   => 'batch_proposals',
+            'reason' => sprintf('fallback batch: %d proposals (useCascaded=%s)', count($batchProposals), $useCascaded ? 'true' : 'false'),
+            'count'  => count($batchProposals),
+        ]);
+        return $batchProposals;
     }
 
     /** Per-candidate LLM (Level C) — detailed analysis for one symbol. */
