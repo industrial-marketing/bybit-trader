@@ -71,8 +71,17 @@ class BotMetricsService
                     ];
                 }
                 $byAction[$action]['proposed']++;
-                $ok = (bool)($e['ok'] ?? false);
-                if ($ok) {
+                $ok      = (bool)($e['ok'] ?? false);
+                $isSkip  = (bool)($e['skipped'] ?? false);
+                $skipReason = $e['skip_reason'] ?? ($e['skipReason'] ?? null);
+
+                if ($isSkip) {
+                    $skipped++;
+                    $byAction[$action]['skipped']++;
+                    if ($skipReason !== null) {
+                        $skipReasons[$skipReason] = ($skipReasons[$skipReason] ?? 0) + 1;
+                    }
+                } elseif ($ok) {
                     $executed++;
                     $byAction[$action]['executed']++;
                 } else {
