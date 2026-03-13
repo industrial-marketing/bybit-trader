@@ -50,7 +50,17 @@ class ProfileContextRequestSubscriber implements EventSubscriberInterface
         /** @var User|null $user */
         $user = $this->security->getUser();
 
-        // Try session first (when available)
+        // ACTIVE_PROFILE_ID env: server default (overrides session for deployment config)
+        $envProfileId = $_ENV['ACTIVE_PROFILE_ID'] ?? $_SERVER['ACTIVE_PROFILE_ID'] ?? '';
+        if ($envProfileId !== '' && is_numeric($envProfileId)) {
+            $profile = $this->em->getRepository(TradingProfile::class)->find((int) $envProfileId);
+            if ($profile !== null && ($user === null || $profile->getUser()->getId() === $user->getId())) {
+                $this->profileContext->setActiveProfileId((int) $envProfileId);
+                return;
+            }
+        }
+
+        // Try session (when available)
         $profileId = $session?->get(self::SESSION_KEY);
 
         if ($profileId !== null && $profileId !== '' && (int) $profileId > 0 && $session !== null) {

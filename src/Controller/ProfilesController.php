@@ -155,6 +155,33 @@ class ProfilesController extends AbstractController
         ]);
     }
 
+    #[Route('/{id}/set-default', name: 'profiles_set_default', requirements: ['id' => '\d+'], methods: ['POST'])]
+    public function setDefault(Request $request, int $id): Response
+    {
+        if (!$this->isCsrfTokenValid('profile_set_default_' . $id, $request->request->get('_csrf_token'))) {
+            $this->addFlash('error', 'Invalid request.');
+            return $this->redirectToRoute('profiles_list');
+        }
+        $user = $this->getUser();
+        if ($user === null) {
+            return $this->redirectToRoute('login');
+        }
+
+        $profile = $this->em->getRepository(TradingProfile::class)->find($id);
+        if ($profile === null || $profile->getUser()->getId() !== $user->getId()) {
+            $this->addFlash('error', 'Profile not found.');
+            return $this->redirectToRoute('profiles_list');
+        }
+
+        foreach ($this->em->getRepository(TradingProfile::class)->findBy(['user' => $user]) as $p) {
+            $p->setIsDefault($p->getId() === $id);
+        }
+        $this->em->flush();
+
+        $this->addFlash('success', $profile->getName() . ' is now the default profile.');
+        return $this->redirectToRoute('profiles_list');
+    }
+
     #[Route('/{id}/switch', name: 'profiles_switch', requirements: ['id' => '\d+'], methods: ['POST'])]
     public function switchProfile(Request $request, int $id): Response
     {
