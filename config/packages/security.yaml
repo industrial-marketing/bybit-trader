@@ -24,9 +24,17 @@ security:
                 check_path: login
                 default_target_path: /app
                 enable_csrf: true
+                remember_me: true
+            remember_me:
+                secret: '%env(APP_SECRET)%'
+                lifetime: 1209600   # 14 days
+                remember_me_parameter: _remember_me
+                always_remember_me: true   # Google OAuth gets remember-me too
             logout:
                 path: logout
                 target: /
+                delete_cookies:
+                    - REMEMBERME
             lazy: true
 
     access_control:

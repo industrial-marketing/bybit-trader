@@ -87,6 +87,11 @@ class GoogleAuthenticator extends OAuth2Authenticator implements AuthenticationE
                     $this->em->persist($botSettings);
                 }
 
+                $refreshToken = $accessToken->getRefreshToken();
+                if ($refreshToken !== null && $refreshToken !== '') {
+                    $user->setGoogleRefreshToken($refreshToken);
+                }
+
                 $this->em->flush();
 
                 return $user;

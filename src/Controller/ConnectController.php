@@ -17,7 +17,7 @@ class ConnectController extends AbstractController
     {
         return $clientRegistry
             ->getClient('google')
-            ->redirect([], []);
+            ->redirect([], ['access_type' => 'offline', 'prompt' => 'consent']);
     }
 
     #[Route('/connect/google/check', name: 'connect_google_check', methods: ['GET'])]
