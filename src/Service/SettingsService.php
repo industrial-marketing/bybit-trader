@@ -51,6 +51,12 @@ class SettingsService
         return $this->databaseSource->getStrategiesSettings();
     }
 
+    /** Clear cached profile — use when switching profiles to force fresh DB load */
+    public function clearProfileCache(): void
+    {
+        $this->databaseSource->clearProfileCache();
+    }
+
     public function updateSettings(array $settings): void
     {
         $this->databaseSource->updateSettings($settings);

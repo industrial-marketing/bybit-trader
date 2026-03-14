@@ -253,6 +253,13 @@ class DatabaseSettingsSource implements SettingsSourceInterface
         return $this->loadProfile() !== null;
     }
 
+    /** Clear cached profile/settings — force fresh load from DB on next get* call */
+    public function clearProfileCache(): void
+    {
+        $this->profile = null;
+        $this->settings = null;
+    }
+
     public function getSettings(): array
     {
         return $this->getSettingsArray();

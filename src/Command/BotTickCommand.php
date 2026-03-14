@@ -116,6 +116,13 @@ class BotTickCommand extends Command
         $exitCode = Command::SUCCESS;
         foreach ($profiles as $profile) {
             $this->profileContext->setActiveProfileId($profile->getId());
+            // Force reload from DB — avoids stale ExchangeIntegration (mainnet→testnet mismatch)
+            $this->em->refresh($profile);
+            $ex = $profile->getExchangeIntegration();
+            if ($ex !== null) {
+                $this->em->refresh($ex);
+            }
+            $this->settingsService->clearProfileCache();
             $bybit = $this->settingsService->getBybitSettings();
             $baseUrl = $bybit['base_url'] ?? '?';
             $isTestnet = str_contains($baseUrl, 'testnet');
