@@ -118,8 +118,16 @@ class BotTickCommand extends Command
             $this->profileContext->setActiveProfileId($profile->getId());
             $bybit = $this->settingsService->getBybitSettings();
             $baseUrl = $bybit['base_url'] ?? '?';
-            $isMainnet = str_contains($baseUrl, 'api.bybit.com') && !str_contains($baseUrl, 'testnet');
+            $isTestnet = str_contains($baseUrl, 'testnet');
+            $isMainnet = str_contains($baseUrl, 'api.bybit.com') && !$isTestnet;
             $apiLabel = $isMainnet ? 'MAINNET' : 'TESTNET';
+            $this->botHistory->log('tick_start', [
+                'profile_id'      => $profile->getId(),
+                'profile_name'    => $profile->getName(),
+                'environment'     => $profile->getEnvironment(),
+                'base_url'        => $baseUrl,
+                'api_is_testnet'  => $isTestnet,
+            ]);
             $io->section("Profile: {$profile->getName()} (#{$profile->getId()}) [{$profile->getEnvironment()}] — API: {$apiLabel} ({$baseUrl})");
             try {
                 $result = $this->runForProfile($io, $force);

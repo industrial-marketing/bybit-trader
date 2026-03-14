@@ -243,9 +243,11 @@ class ApiController extends AbstractController
             if ($profile !== null) {
                 $trading = $this->settingsService->getTradingSettings();
                 $profileInfo = [
-                    'id'   => $profile->getId(),
-                    'name' => $profile->getName() . ' (' . $profile->getEnvironment() . ')',
-                    'max_managed' => (int)($trading['max_managed_positions'] ?? 10),
+                    'id'           => $profile->getId(),
+                    'name'         => $profile->getName() . ' (' . $profile->getEnvironment() . ')',
+                    'max_managed'  => (int)($trading['max_managed_positions'] ?? 10),
+                    'min_positions'=> (int)($trading['auto_open_min_positions'] ?? 5),
+                    'settings_from'=> 'profile_' . $profile->getId(),
                 ];
             }
         }
@@ -339,6 +341,17 @@ class ApiController extends AbstractController
      */
     private function runSingleProfileTick(TradingProfile $profile): array
     {
+        $bybit   = $this->settingsService->getBybitSettings();
+        $baseUrl = $bybit['base_url'] ?? '?';
+        $isTest  = str_contains($baseUrl, 'testnet');
+        $this->botHistory->log('tick_start', [
+            'profile_id'   => $profile->getId(),
+            'profile_name' => $profile->getName(),
+            'environment'  => $profile->getEnvironment(),
+            'base_url'     => $baseUrl,
+            'api_is_testnet' => $isTest,
+        ]);
+
         // ── Kill-switch ──────────────────────────────────────────────
         if (!$this->riskGuard->isTradingEnabled()) {
             return ['skip' => true, 'reason' => 'kill_switch'];

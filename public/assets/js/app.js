@@ -1522,7 +1522,9 @@ function loadBotDecisions() {
 function renderDecisionsTable(data, profile) {
     const $badge = $('#trace-profile-badge');
     if (profile && profile.name) {
-        $badge.html('<i class="bi bi-person-badge"></i> ' + profile.name + ' (max <strong>' + profile.max_managed + '</strong> pos)').show();
+        const minP = profile.min_positions != null ? profile.min_positions : '?';
+        const maxP = profile.max_managed != null ? profile.max_managed : '?';
+        $badge.html('<i class="bi bi-person-badge"></i> ' + profile.name + ' (min <strong>' + minP + '</strong> / max <strong>' + maxP + '</strong> pos, настройки из профиля)').show();
     } else {
         $badge.text('').hide();
     }
@@ -1537,6 +1539,12 @@ function renderDecisionsTable(data, profile) {
         let action = d.action || (d.type || '—');
         if (d.type === 'proposal_flow') {
             action = (d.step || '') + ': ' + (d.reason || '');
+        } else if (d.type === 'tick_start') {
+            const apiLabel = d.api_is_testnet ? 'TESTNET' : 'MAINNET';
+            const url = (d.base_url || '').replace('https://', '');
+            const env = d.environment || '';
+            const warn = (d.api_is_testnet && env === 'mainnet') ? ' ⚠️ mainnet→testnet!' : '';
+            action = (d.profile_name || '?') + ' (' + env + ') → API: ' + apiLabel + ' (' + url + ')' + warn;
         }
         const conf = d.confidence != null ? d.confidence + '%' : '—';
         const risk = d.risk || '—';
