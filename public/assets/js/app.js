@@ -1160,9 +1160,9 @@ $(document).on('click', '#proposals-table tbody tr[data-proposal]', function() {
 });
 
 function getTradingViewSymbol(symbol) {
-    // Для Bybit на TradingView чаще всего используется префикс BYBIT:
-    // например, BYBIT:BTCUSDT. При необходимости это место легко поменять.
-    return 'BYBIT:' + symbol;
+    const s = String(symbol || 'BTCUSDT').trim().toUpperCase();
+    const tvSym = s.endsWith('.P') ? s : s + '.P';
+    return 'BYBIT:' + tvSym;
 }
 
 function initTradingView(symbol) {
