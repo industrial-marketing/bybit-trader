@@ -341,7 +341,10 @@ class DatabaseSettingsSource implements SettingsSourceInterface
             $baseUrl = $settings['base_url'] !== '' ? (string) $settings['base_url'] : null;
             $ex->setBaseUrl($baseUrl);
             if ($baseUrl !== null) {
-                $ex->setTestnetMode(str_contains($baseUrl, 'testnet'));
+                $isTestnet = str_contains($baseUrl, 'testnet');
+                $ex->setTestnetMode($isTestnet);
+                // Sync profile.environment with base_url — single source of truth, avoids mainnet→testnet mismatch
+                $profile->setEnvironment($isTestnet ? 'testnet' : 'mainnet');
             }
         }
         $ex->touch();
