@@ -108,12 +108,19 @@ class BotTickCommand extends Command
                 $io->note('No admin-approved profiles. Approve profiles in Admin panel or use --profile-id=N.');
                 return Command::SUCCESS;
             }
+            if (count($profiles) > 1) {
+                $io->note('Running ' . count($profiles) . ' profiles. Set ACTIVE_PROFILE_ID in cron to run only your mainnet profile.');
+            }
         }
 
         $exitCode = Command::SUCCESS;
         foreach ($profiles as $profile) {
             $this->profileContext->setActiveProfileId($profile->getId());
-            $io->section("Profile: {$profile->getName()} (#{$profile->getId()}) [{$profile->getEnvironment()}]");
+            $bybit = $this->settingsService->getBybitSettings();
+            $baseUrl = $bybit['base_url'] ?? '?';
+            $isMainnet = str_contains($baseUrl, 'api.bybit.com') && !str_contains($baseUrl, 'testnet');
+            $apiLabel = $isMainnet ? 'MAINNET' : 'TESTNET';
+            $io->section("Profile: {$profile->getName()} (#{$profile->getId()}) [{$profile->getEnvironment()}] — API: {$apiLabel} ({$baseUrl})");
             try {
                 $result = $this->runForProfile($io, $force);
                 if ($result !== Command::SUCCESS) {

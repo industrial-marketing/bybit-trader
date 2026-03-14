@@ -266,26 +266,88 @@ class ApiController extends AbstractController
     // ── Bot tick ──────────────────────────────────────────────────
 
     #[Route('/bot/tick', name: 'api_bot_tick', methods: ['POST', 'GET'])]
-    public function botTick(): JsonResponse
+    public function botTick(Request $request): JsonResponse
+    {
+        // ── Determine profiles to run (same logic as app:bot-tick) ───
+        $profileId = $this->profileContext->getActiveProfileId();
+        $profileIdParam = $request->query->get('profile_id');
+        if ($profileIdParam !== null && $profileIdParam !== '' && is_numeric($profileIdParam)) {
+            $profileId = (int) $profileIdParam;
+        }
+        $profiles = [];
+        if ($profileId !== null && $profileId > 0) {
+            $p = $this->em->find(TradingProfile::class, $profileId);
+            if ($p !== null && $p->isBotApproved() && $p->isActive()) {
+                $profiles = [$p];
+            }
+        }
+        if (empty($profiles)) {
+            $profiles = $this->em->getRepository(TradingProfile::class)->findBy(
+                ['isBotApproved' => true, 'isActive' => true],
+                ['id' => 'ASC']
+            );
+        }
+        if (empty($profiles)) {
+            return $this->json([
+                'ok' => false, 'error' => 'No approved profiles. Approve profiles in Admin or pass ?profile_id=N.',
+                'managed' => [], 'opened' => [],
+            ], 400);
+        }
+
+        $allManaged = [];
+        $allOpened = [];
+        $profilesRun = [];
+
+        foreach ($profiles as $profile) {
+            $this->profileContext->setActiveProfileId($profile->getId());
+            $result = $this->runSingleProfileTick($profile);
+            if (isset($result['skip'])) {
+                continue;
+            }
+            foreach ($result['managed'] as $m) {
+                $m['profile_id'] = $profile->getId();
+                $m['profile_name'] = $profile->getName();
+                $allManaged[] = $m;
+            }
+            foreach ($result['opened'] as $o) {
+                $o['profile_id'] = $profile->getId();
+                $o['profile_name'] = $profile->getName();
+                $allOpened[] = $o;
+            }
+            $profilesRun[] = ['id' => $profile->getId(), 'name' => $profile->getName()];
+        }
+
+        $managedCount = count($allManaged);
+        $openedCount = count($allOpened);
+        $summary = $managedCount === 0 && $openedCount === 0
+            ? 'Бот проверил профили — действий не требуется.'
+            : 'Бот тик: ' . implode(', ', array_filter([
+                $managedCount > 0 ? "обработал {$managedCount} позиц." : '',
+                $openedCount > 0 ? "открыл {$openedCount} сделок" : '',
+            ])) . '.';
+
+        return $this->json([
+            'ok' => true, 'message' => 'Bot tick executed', 'summary' => $summary,
+            'profiles_run' => $profilesRun,
+            'managed' => $allManaged, 'opened' => $allOpened,
+        ]);
+    }
+
+    /**
+     * Run one tick for the current profile (ProfileContext must be set).
+     * @return array{skip: true, reason: string}|array{ok: true, managed: array, opened: array}
+     */
+    private function runSingleProfileTick(TradingProfile $profile): array
     {
         // ── Kill-switch ──────────────────────────────────────────────
         if (!$this->riskGuard->isTradingEnabled()) {
-            return $this->json([
-                'ok' => false, 'blocked' => true, 'reason' => 'kill_switch',
-                'message' => 'Торговля отключена (kill-switch).',
-                'managed' => [], 'opened' => [],
-            ]);
+            return ['skip' => true, 'reason' => 'kill_switch'];
         }
 
         // ── Circuit Breaker ──────────────────────────────────────────
         $cbStatus = $this->circuitBreaker->getStatus();
         if ($cbStatus['is_open']) {
-            return $this->json([
-                'ok' => false, 'blocked' => true, 'reason' => 'circuit_breaker',
-                'message' => $cbStatus['message'],
-                'circuit_breaker' => $cbStatus,
-                'managed' => [], 'opened' => [],
-            ]);
+            return ['skip' => true, 'reason' => 'circuit_breaker'];
         }
 
         $trading        = $this->settingsService->getTradingSettings();
@@ -299,11 +361,7 @@ class ApiController extends AbstractController
         $dailyCheck = $this->riskGuard->checkDailyLossLimit();
         if (!$dailyCheck['ok']) {
             $this->alertService->alertRiskLimit('daily_loss_limit', ['message' => $dailyCheck['message']]);
-            return $this->json([
-                'ok' => false, 'blocked' => true, 'reason' => 'daily_loss_limit',
-                'message' => $dailyCheck['message'],
-                'managed' => [], 'opened' => [],
-            ]);
+            return ['skip' => true, 'reason' => 'daily_loss_limit'];
         }
 
         // ── Idempotency / timeframe throttle (atomic, flock-protected) ───
@@ -314,14 +372,7 @@ class ApiController extends AbstractController
         };
         $runId = $this->botRunService->tryStart($botTimeframe);
         if ($runId === null) {
-            $bucket = $this->botRunService->currentBucket($botTimeframe);
-            return $this->json([
-                'ok'      => true,
-                'skipped' => true,
-                'reason'  => 'timeframe_bucket_done_or_running',
-                'message' => "Тик для окна {$bucket} ({$tfLabel}) уже выполняется или завершён.",
-                'managed' => [], 'opened' => [],
-            ]);
+            return ['skip' => true, 'reason' => 'bucket_done'];
         }
 
         $positions = $this->bybitService->getPositions();
@@ -365,11 +416,7 @@ class ApiController extends AbstractController
             ]);
             $this->alertService->alertRiskLimit('stale_data', ['message' => $freshnessCheck['message']]);
             $this->botRunService->finish($runId, 'skipped');
-            return $this->json([
-                'ok' => false, 'blocked' => true, 'reason' => 'stale_data',
-                'message' => $freshnessCheck['message'],
-                'managed' => [], 'opened' => [],
-            ]);
+            return ['skip' => true, 'reason' => 'stale_data'];
         }
         $dataFreshnessSec = (float)($freshnessCheck['age_sec'] ?? 0.0);
 
@@ -778,11 +825,36 @@ class ApiController extends AbstractController
 
         $this->botRunService->finish($runId, 'done');
 
-        return $this->json([
-            'ok' => true, 'message' => 'Bot tick executed', 'summary' => $summary,
-            'run_id'  => $runId,
-            'managed' => $managed, 'opened' => $opened, 'openPositionsBefore' => $openCount,
-        ]);
+        return [
+            'ok'      => true,
+            'managed' => $managed,
+            'opened'  => $opened,
+        ];
+    }
+
+    private function buildBotTickProfileInfo(): array
+    {
+        $profileId = $this->profileContext->getActiveProfileId();
+        $bybit = $this->settingsService->getBybitSettings();
+        $baseUrl = $bybit['base_url'] ?? '';
+
+        if ($profileId !== null) {
+            $profile = $this->em->find(TradingProfile::class, $profileId);
+            $isMainnet = str_contains($baseUrl, 'api.bybit.com') && !str_contains($baseUrl, 'testnet');
+            return [
+                'profile_id'   => $profileId,
+                'profile_name' => $profile?->getName() ?? 'Profile #' . $profileId,
+                'api'          => $isMainnet ? 'MAINNET' : 'TESTNET',
+                'base_url'     => $baseUrl,
+            ];
+        }
+        return [
+            'profile_id'   => null,
+            'profile_name' => null,
+            'api'          => str_contains($baseUrl, 'testnet') ? 'TESTNET' : 'MAINNET',
+            'api_source'   => 'file',
+            'hint'         => 'Optional: ACTIVE_PROFILE_ID or ?profile_id=N to run only one profile. Without it, all approved profiles run.',
+        ];
     }
 
     // ── Order management ──────────────────────────────────────────

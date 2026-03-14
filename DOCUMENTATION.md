@@ -687,6 +687,15 @@ CSS построен на custom properties:
 * * * * * /usr/bin/curl -s -X POST http://localhost/api/bot/tick
 ```
 
+**⚠️ ACTIVE_PROFILE_ID обязателен для cron (curl)**
+
+При вызове через curl нет сессии и авторизации. Без `ACTIVE_PROFILE_ID` в `.env` бот использует legacy-настройки (обычно testnet). Топ-маркеты и API зависят от профиля: на testnet есть символы вроде RESOLVPERP, которых нет в топ-50 mainnet — бот будет пытаться открыть их и получать ошибки на проде.
+
+1. В `.env` задайте `ACTIVE_PROFILE_ID=2` (ID вашего mainnet-профиля).
+2. Либо передавайте в URL: `curl -X POST "http://localhost/api/bot/tick?profile_id=2"`.
+
+Ответ тика содержит поле `profile`: `profile_id`, `profile_name`, `api` (MAINNET/TESTNET). Если видите `profile_id: null` и `api_source: file` — добавьте `ACTIVE_PROFILE_ID` в `.env` и перезапустите веб-сервер.
+
 Предпочтительно вызывать `POST /api/bot/tick` через curl — запрос обрабатывает веб‑сервер (www-data), права на `var/` совпадают.
 
 **Если cron запускает `php bin/console app:bot-tick` под другим пользователем (например palki):**

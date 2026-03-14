@@ -64,10 +64,26 @@ class ProfileContextRequestSubscriber implements EventSubscriberInterface
             $session->remove(self::SESSION_KEY);
         }
 
-        // Auto-set default profile when user is logged in but has none selected
+        // When anonymous: for /api/bot/tick use ACTIVE_PROFILE_ID or ?profile_id= so cron uses correct profile
         if ($user === null) {
+            $path = $request->getPathInfo();
+            if (str_starts_with($path, '/api/bot/')) {
+                $profileId = $request->query->get('profile_id');
+                if ($profileId === null || $profileId === '') {
+                    $profileId = $_ENV['ACTIVE_PROFILE_ID'] ?? $_SERVER['ACTIVE_PROFILE_ID'] ?? null;
+                }
+                if ($profileId !== null && $profileId !== '' && is_numeric($profileId)) {
+                    $profile = $this->em->getRepository(TradingProfile::class)->find((int) $profileId);
+                    if ($profile !== null && $profile->isBotApproved() && $profile->isActive()) {
+                        $this->profileContext->setActiveProfileId((int) $profileId);
+                        return;
+                    }
+                }
+            }
             return;
         }
+
+        // Auto-set default profile when user is logged in but has none selected
 
         $defaultProfile = $this->em->getRepository(TradingProfile::class)->findOneBy(
             ['user' => $user, 'isActive' => true],
