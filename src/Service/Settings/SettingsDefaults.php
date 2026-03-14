@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Service\Settings;
 
 /**
- * Default settings structure shared by FileSettingsSource and DatabaseSettingsSource.
+ * Default settings structure for DatabaseSettingsSource.
  */
 final class SettingsDefaults
 {

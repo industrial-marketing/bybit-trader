@@ -5,12 +5,11 @@ declare(strict_types=1);
 namespace App\Service\Storage;
 
 /**
- * Storage for bot history events.
- * File: var/bot_history.json | DB: bot_history_event
+ * Storage for bot history events (MySQL bot_history_event). File storage removed.
  */
 interface BotHistoryStorageInterface
 {
-    /** Path to JSON file when using file storage; empty string when using DB. */
+    /** Always empty for DB storage. */
     public function getDataFilePath(): string;
 
     public function log(string $type, array $payload): void;

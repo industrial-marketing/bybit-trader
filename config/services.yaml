@@ -17,12 +17,13 @@ services:
             $adminEmail: '%env(APP_ADMIN_EMAIL)%'
             $adminPasswordHash: '%env(APP_AUTH_PASSWORD_HASHED)%'
 
-    App\Service\Storage\PositionLockStorageInterface: '@App\Service\Storage\PositionLockStorage'
-    App\Service\Storage\PendingActionStorageInterface: '@App\Service\Storage\PendingActionStorage'
-    App\Service\Storage\PositionPlanStorageInterface: '@App\Service\Storage\PositionPlanStorage'
-    App\Service\Storage\CircuitBreakerStorageInterface: '@App\Service\Storage\CircuitBreakerStorage'
-    App\Service\Storage\BotHistoryStorageInterface: '@App\Service\Storage\BotHistoryStorage'
-    App\Service\Storage\BotRunStorageInterface: '@App\Service\Storage\BotRunStorage'
+    # DB-only: file storage removed
+    App\Service\Storage\PositionLockStorageInterface: '@App\Service\Storage\DbPositionLockStorage'
+    App\Service\Storage\PendingActionStorageInterface: '@App\Service\Storage\DbPendingActionStorage'
+    App\Service\Storage\PositionPlanStorageInterface: '@App\Service\Storage\DbPositionPlanStorage'
+    App\Service\Storage\CircuitBreakerStorageInterface: '@App\Service\Storage\DbCircuitBreakerStorage'
+    App\Service\Storage\BotHistoryStorageInterface: '@App\Service\Storage\DbBotHistoryStorage'
+    App\Service\Storage\BotRunStorageInterface: '@App\Service\Storage\DbBotRunStorage'
 
     App\Service\Memory\QdrantClientService:
         arguments:

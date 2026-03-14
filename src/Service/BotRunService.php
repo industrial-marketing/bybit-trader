@@ -12,7 +12,7 @@ use App\Service\Storage\BotRunStorageInterface;
  * Prevents two concurrent PHP processes (cron + manual trigger) from running
  * the same bot tick for the same timeframe window simultaneously.
  *
- * Storage: file (var/bot_runs.json) or MySQL (bot_run) depending on ProfileContext.
+ * Storage: MySQL (bot_run). File storage removed.
  *
  * Timeframe bucket:
  *   For a 5-minute timeframe at 10:07 → "2026-02-25T10:05".

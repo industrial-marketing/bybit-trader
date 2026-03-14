@@ -6,7 +6,7 @@ namespace App\Service\Settings;
 
 /**
  * Abstraction for settings storage.
- * Implementations: FileSettingsSource (var/settings.json), DatabaseSettingsSource (MySQL).
+ * Implementation: DatabaseSettingsSource (MySQL). File storage removed.
  */
 interface SettingsSourceInterface
 {

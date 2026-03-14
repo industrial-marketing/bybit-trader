@@ -7,10 +7,7 @@ namespace App\Service;
 use App\Service\Storage\BotHistoryStorageInterface;
 
 /**
- * Persistent bot event log.
- *
- * Storage: file (var/bot_history.json) or MySQL (bot_history_event) depending on ProfileContext.
- * Override via VAR_DIR env: absolute path to var/ (ensures same file when cron runs from different cwd).
+ * Persistent bot event log. Storage: MySQL (bot_history_event). File storage removed.
  */
 class BotHistoryService
 {
@@ -19,7 +16,7 @@ class BotHistoryService
     ) {
     }
 
-    /** Path to var/bot_history.json when using file storage; empty when using DB. */
+    /** Empty (DB storage). Kept for compatibility with BotMetricsService. */
     public function getDataFilePath(): string
     {
         return $this->storage->getDataFilePath();

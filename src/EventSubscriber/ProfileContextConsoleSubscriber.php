@@ -10,7 +10,7 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
 /**
  * Sets ProfileContext.activeProfileId from ACTIVE_PROFILE_ID env when running CLI commands.
- * When set, SettingsService uses database settings for that profile instead of var/settings.json.
+ * When set, SettingsService uses database settings for that profile.
  */
 class ProfileContextConsoleSubscriber implements EventSubscriberInterface
 {

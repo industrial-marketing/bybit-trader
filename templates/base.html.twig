@@ -51,7 +51,7 @@
     .profile-dropdown.open .profile-chevron { transform: rotate(180deg); }
     </style>
 </head>
-<body>
+<body data-active-profile-id="{{ app_active_profile_id|default(0) }}">
     <nav class="navbar">
         <div class="container">
             <a class="navbar-brand" href="/">
@@ -156,6 +156,16 @@
         </div>
     </footer>
     <script>
+    window.getActiveProfileId = function() {
+        var pid = document.body && document.body.getAttribute ? document.body.getAttribute('data-active-profile-id') : null;
+        var n = pid != null && pid !== '' ? parseInt(pid, 10) : 0;
+        return isNaN(n) ? 0 : Math.max(0, n);
+    };
+    window.getActiveProfileIdParam = function(urlHasParams) {
+        var n = window.getActiveProfileId();
+        if (n <= 0) return '';
+        return (urlHasParams ? '&' : '?') + 'profile_id=' + n;
+    };
     (function() {
         var $btn = document.getElementById('profile-dropdown-btn');
         var $menu = document.getElementById('profile-dropdown-menu');

@@ -50,7 +50,33 @@ class ProfileContextRequestSubscriber implements EventSubscriberInterface
         /** @var User|null $user */
         $user = $this->security->getUser();
 
-        // Try session first (when available)
+        // 1. EXPLICIT profile_id in query — highest priority for profile-scoped bot APIs (strict isolation)
+        $path = $request->getPathInfo();
+        $profileScopedPaths = [
+            '/api/bot/metrics', '/api/bot/decisions', '/api/bot/history', '/api/bot/runs',
+            '/api/bot/risk-status', '/api/bot/pending', '/api/bot/circuit-breaker',
+            '/api/positions', '/api/orders', '/api/position-plans', '/api/trades',
+            '/api/closed-trades', '/api/statistics', '/api/account-info', '/api/balance',
+        ];
+        $isProfileScoped = false;
+        foreach ($profileScopedPaths as $p) {
+            if (str_starts_with($path, $p)) {
+                $isProfileScoped = true;
+                break;
+            }
+        }
+        if ($user !== null && $isProfileScoped) {
+            $queryProfileId = $request->query->get('profile_id');
+            if ($queryProfileId !== null && $queryProfileId !== '' && (int) $queryProfileId > 0) {
+                $profile = $this->em->getRepository(TradingProfile::class)->find((int) $queryProfileId);
+                if ($profile !== null && $profile->getUser()->getId() === $user->getId()) {
+                    $this->profileContext->setActiveProfileId((int) $queryProfileId);
+                    return;
+                }
+            }
+        }
+
+        // 2. Try session (when available)
         $profileId = $session?->get(self::SESSION_KEY);
 
         if ($profileId !== null && $profileId !== '' && (int) $profileId > 0 && $session !== null) {

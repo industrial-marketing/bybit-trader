@@ -27,7 +27,7 @@ class TelegramPeriodicUpdateCommand extends Command
     protected function configure(): void
     {
         $this->addOption('force', 'f', InputOption::VALUE_NONE, 'Force send now regardless of interval');
-        $this->addOption('profile-id', 'p', InputOption::VALUE_REQUIRED, 'Use this profile\'s Telegram config (otherwise file settings)');
+        $this->addOption('profile-id', 'p', InputOption::VALUE_REQUIRED, 'Use this profile\'s Telegram config (otherwise all approved profiles)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int

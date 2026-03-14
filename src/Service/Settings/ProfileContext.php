@@ -6,8 +6,7 @@ namespace App\Service\Settings;
 
 /**
  * Holds the active trading profile ID for the current request/CLI.
- * When null → use file-based settings (legacy).
- * When set → use database settings for that profile.
+ * All settings and storage use database (profile-specific). File storage removed.
  */
 class ProfileContext
 {
@@ -22,10 +21,5 @@ class ProfileContext
     {
         $this->activeProfileId = $profileId;
         return $this;
-    }
-
-    public function useFileSettings(): bool
-    {
-        return $this->activeProfileId === null;
     }
 }

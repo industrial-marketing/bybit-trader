@@ -474,7 +474,8 @@ function testDeepseekConnection() {
 // ── Circuit Breaker ───────────────────────────────────────────────────
 
 function loadCbStatus() {
-    $.get('/api/bot/circuit-breaker')
+    var q = (typeof getActiveProfileIdParam === 'function' ? getActiveProfileIdParam : (window.getActiveProfileIdParam || function() { return ''; }))();
+    $.get('/api/bot/circuit-breaker' + q)
         .done(function(data) {
             renderCbBanner(data);
         });
@@ -531,7 +532,8 @@ function saveCbSettings() {
 
 function resetCircuitBreaker(type) {
     const payload = type ? { type: type } : {};
-    $.ajax({ url: '/api/bot/circuit-breaker/reset', method: 'POST', contentType: 'application/json', data: JSON.stringify(payload) })
+    const url = '/api/bot/circuit-breaker/reset' + (typeof window.getActiveProfileIdParam === 'function' ? window.getActiveProfileIdParam() : '');
+    $.ajax({ url: url, method: 'POST', contentType: 'application/json', data: JSON.stringify(payload) })
         .done(function(data) {
             showMessage('Circuit breaker сброшен.', 'success');
             renderCbBanner(data.status);

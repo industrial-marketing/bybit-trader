@@ -217,6 +217,10 @@ class ApiController extends AbstractController
     #[Route('/bot/history', name: 'api_bot_history', methods: ['GET'])]
     public function getBotHistory(Request $request): JsonResponse
     {
+        $profileGuard = $this->requireProfileForBotData();
+        if ($profileGuard !== null) {
+            return $profileGuard;
+        }
         $days   = (int)($request->query->get('days') ?? 7);
         $events = $this->botHistory->getRecentEvents($days);
         usort($events, fn($a, $b) => strcmp($b['timestamp'] ?? '', $a['timestamp'] ?? ''));
@@ -226,6 +230,10 @@ class ApiController extends AbstractController
     #[Route('/bot/metrics', name: 'api_bot_metrics', methods: ['GET'])]
     public function getBotMetrics(Request $request): JsonResponse
     {
+        $profileGuard = $this->requireProfileForBotData();
+        if ($profileGuard !== null) {
+            return $profileGuard;
+        }
         $days = (int)($request->query->get('days') ?? 30);
         return $this->json($this->botMetrics->getMetrics($days));
     }
@@ -233,6 +241,10 @@ class ApiController extends AbstractController
     #[Route('/bot/decisions', name: 'api_bot_decisions', methods: ['GET'])]
     public function getBotDecisions(Request $request): JsonResponse
     {
+        $profileGuard = $this->requireProfileForBotData();
+        if ($profileGuard !== null) {
+            return $profileGuard;
+        }
         $limit = (int)($request->query->get('limit') ?? 100);
         $decisions = $this->botMetrics->getRecentDecisions($limit);
 
@@ -261,8 +273,28 @@ class ApiController extends AbstractController
     #[Route('/bot/runs', name: 'api_bot_runs', methods: ['GET'])]
     public function getBotRuns(Request $request): JsonResponse
     {
+        $profileGuard = $this->requireProfileForBotData();
+        if ($profileGuard !== null) {
+            return $profileGuard;
+        }
         $limit = (int)($request->query->get('limit') ?? 30);
         return $this->json($this->botRunService->getRecentRuns($limit));
+    }
+
+    /**
+     * Strict isolation: bot data endpoints require an active profile.
+     * Returns 400 JsonResponse if profile is missing; null if OK to proceed.
+     */
+    private function requireProfileForBotData(): ?JsonResponse
+    {
+        $profileId = $this->profileContext->getActiveProfileId();
+        if ($profileId !== null && $profileId > 0) {
+            return null;
+        }
+        return $this->json([
+            'ok' => false,
+            'error' => 'profile_id required. Select a profile in the nav or pass ?profile_id=N.',
+        ], 400);
     }
 
     // ── Bot tick ──────────────────────────────────────────────────
@@ -953,12 +985,20 @@ class ApiController extends AbstractController
     #[Route('/bot/risk-status', name: 'api_bot_risk_status', methods: ['GET'])]
     public function getRiskStatus(): JsonResponse
     {
+        $profileGuard = $this->requireProfileForBotData();
+        if ($profileGuard !== null) {
+            return $profileGuard;
+        }
         return $this->json($this->riskGuard->getRiskStatus($this->bybitService->getPositions()));
     }
 
     #[Route('/bot/pending', name: 'api_bot_pending', methods: ['GET'])]
     public function getPendingActions(): JsonResponse
     {
+        $profileGuard = $this->requireProfileForBotData();
+        if ($profileGuard !== null) {
+            return $profileGuard;
+        }
         return $this->json($this->pendingActions->getAll());
     }
 
@@ -1035,12 +1075,20 @@ class ApiController extends AbstractController
     #[Route('/bot/circuit-breaker', name: 'api_circuit_breaker_status', methods: ['GET'])]
     public function getCircuitBreakerStatus(): JsonResponse
     {
+        $profileGuard = $this->requireProfileForBotData();
+        if ($profileGuard !== null) {
+            return $profileGuard;
+        }
         return $this->json($this->circuitBreaker->getStatus());
     }
 
     #[Route('/bot/circuit-breaker/reset', name: 'api_circuit_breaker_reset', methods: ['POST'])]
     public function resetCircuitBreaker(Request $request): JsonResponse
     {
+        $profileGuard = $this->requireProfileForBotData();
+        if ($profileGuard !== null) {
+            return $profileGuard;
+        }
         $data = json_decode($request->getContent(), true) ?? [];
         $type = $data['type'] ?? null;
 

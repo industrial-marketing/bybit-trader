@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Service\Storage;
 
 /**
- * Storage for bot run idempotency (var/bot_runs.json | bot_run).
+ * Storage for bot run idempotency (bot_run table).
  */
 interface BotRunStorageInterface
 {

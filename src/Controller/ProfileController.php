@@ -32,14 +32,8 @@ class ProfileController extends AbstractController
         $data = json_decode($request->getContent(), true) ?? [];
         $profileId = isset($data['profile_id']) ? (int) $data['profile_id'] : null;
 
-        if ($profileId === null) {
-            return $this->json(['ok' => false, 'error' => 'profile_id required'], 400);
-        }
-
-        if ($profileId === 0) {
-            $request->getSession()->set('active_profile_id', null);
-            $this->profileContext->setActiveProfileId(null);
-            return $this->json(['ok' => true, 'profile_id' => 0, 'mode' => 'file']);
+        if ($profileId === null || $profileId <= 0) {
+            return $this->json(['ok' => false, 'error' => 'profile_id required (file mode removed, use DB profile)'], 400);
         }
 
         $profile = $this->em->getRepository(TradingProfile::class)->find($profileId);

@@ -3,6 +3,19 @@ let tvReady = false;
 let tvWidgetBot = null;
 let tvReadyBot = false;
 
+/** Active profile ID from page. Strict isolation: never mix profiles. */
+function getActiveProfileId() {
+    const pid = document.body && document.body.getAttribute ? document.body.getAttribute('data-active-profile-id') : null;
+    const n = pid != null && pid !== '' ? parseInt(pid, 10) : 0;
+    return isNaN(n) ? 0 : Math.max(0, n);
+}
+/** Returns &profile_id=N or ?profile_id=N for profile-scoped API. '' when no profile. urlHasParams: true = use & */
+function getActiveProfileIdParam(urlHasParams) {
+    const n = getActiveProfileId();
+    if (n <= 0) return '';
+    return (urlHasParams ? '&' : '?') + 'profile_id=' + n;
+}
+
 /**
  * Форматирует цену с учётом величины: малые цены (0.0045) — больше знаков, большие (45000) — меньше.
  * @param {number|string|null} price
@@ -275,7 +288,9 @@ function loadDashboard() {
 }
 
 function loadPeriodPnl() {
-    $.get('/api/statistics/periods')
+    var params = {};
+    if (getActiveProfileId() > 0) params.profile_id = getActiveProfileId();
+    $.get('/api/statistics/periods', params)
         .done(function(data) {
             const fmt = function(v) {
                 if (v == null) return '-';
@@ -300,7 +315,9 @@ function loadPeriodPnl() {
 
 function loadMiniEquityChart() {
     var days = parseInt($('#mini-equity-period').val() || '30', 10);
-    $.get('/api/statistics/pnl', { days: days })
+    var params = { days: days };
+    if (getActiveProfileId() > 0) params.profile_id = getActiveProfileId();
+    $.get('/api/statistics/pnl', params)
         .done(function(data) {
             var series = data.series || [];
             var ctx = document.getElementById('mini-equity-chart');
@@ -354,9 +371,13 @@ function renderWhyBadge(decision) {
 }
 
 function loadPositionsAndOrders() {
+    const pid = getActiveProfileId();
+    const posParams = { _t: Date.now() };
+    const ordParams = {};
+    if (pid > 0) { posParams.profile_id = pid; ordParams.profile_id = pid; }
     $.when(
-        $.get('/api/positions', { _t: Date.now() }),
-        $.get('/api/orders')
+        $.get('/api/positions', posParams),
+        $.get('/api/orders', ordParams)
     ).done(function(positionsResp, ordersResp) {
         const positions = positionsResp[0] || [];
         const orders = ordersResp[0] || [];
@@ -553,6 +574,8 @@ function loadTrades(cursor) {
     var limit = parseInt($('#trades-limit').val() || '50', 10);
     var params = { limit: limit, period: period };
     if (cursor) params.cursor = cursor;
+    var pid = getActiveProfileId();
+    if (pid > 0) params.profile_id = pid;
 
     $.get('/api/closed-trades', params)
         .done(function(res) {
@@ -654,7 +677,7 @@ function switchDashboardPage(page) {
 }
 
 function loadStatistics() {
-    $.get('/api/statistics')
+    $.get('/api/statistics' + getActiveProfileIdParam())
         .done(function(data) {
             $('#stat-total-trades').text(data.totalTrades);
             $('#stat-win-rate').text(data.winRate + '%');
@@ -705,7 +728,10 @@ var pnlEquityChart = null;
 function loadPnlCharts() {
     var days = parseInt($('#pnl-period').val() || '30', 10);
     var symbol = $('#pnl-symbol').val() || '';
-    $.get('/api/statistics/pnl', { days: days, symbol: symbol || undefined })
+    var pnlParams = { days: days, symbol: symbol || undefined };
+    var pid = getActiveProfileId();
+    if (pid > 0) pnlParams.profile_id = pid;
+    $.get('/api/statistics/pnl', pnlParams)
         .done(function(data) {
             if (data.bySymbol && data.bySymbol.length > 0) {
                 var $sel = $('#pnl-symbol');
@@ -771,7 +797,9 @@ function renderPnlBarChart(bySymbol) {
 }
 
 function loadPositionPlans() {
-    $.get('/api/position-plans')
+    const params = {};
+    if (getActiveProfileId() > 0) params.profile_id = getActiveProfileId();
+    $.get('/api/position-plans', params)
         .done(function(data) {
             var plans = data && typeof data === 'object' && !Array.isArray(data) ? Object.values(data) : (Array.isArray(data) ? data : []);
             var $sec = $('#position-plans-section');
@@ -815,7 +843,9 @@ function loadPositionPlans() {
 }
 
 function loadAccountInfo() {
-    $.get('/api/account-info')
+    const params = {};
+    if (getActiveProfileId() > 0) params.profile_id = getActiveProfileId();
+    $.get('/api/account-info', params)
         .done(function(data) {
             const mode = data && data.marginMode ? data.marginMode : null;
             const labels = { REGULAR_MARGIN: 'Cross', ISOLATED_MARGIN: 'Isolated', PORTFOLIO_MARGIN: 'Portfolio' };
@@ -828,7 +858,9 @@ function loadAccountInfo() {
 }
 
 function loadBalance() {
-    $.get('/api/balance')
+    const params = {};
+    if (getActiveProfileId() > 0) params.profile_id = getActiveProfileId();
+    $.get('/api/balance', params)
         .done(function(data) {
             const wallet = parseFloat(data.walletBalance || 0);
             const available = parseFloat(data.availableBalance || 0);
@@ -854,7 +886,7 @@ function runBotTick() {
     $btns.prop('disabled', true).text('Running...');
 
     $.ajax({
-        url: '/api/bot/tick',
+        url: '/api/bot/tick' + getActiveProfileIdParam(),
         method: 'POST',
         success: function(res) {
             const msg = res && res.summary ? res.summary : (res && res.message ? res.message : 'Bot completed');
@@ -897,7 +929,7 @@ function runBotTick() {
 }
 
 function loadBotHistory() {
-    $.get('/api/bot/history')
+    $.get('/api/bot/history' + getActiveProfileIdParam())
         .done(function(data) {
             const $tbody = $('#bot-history-table tbody');
             if (!data || data.length === 0) {
@@ -1291,7 +1323,8 @@ function getTradingDecision(symbol) {
 // ─────────────────────────────────────────────────────────────────
 
 function loadRiskStatus() {
-    $.get('/api/bot/risk-status')
+    const q = getActiveProfileIdParam();
+    $.get('/api/bot/risk-status' + q)
         .done(function(data) {
             renderRiskPanel(data);
         })
@@ -1299,7 +1332,7 @@ function loadRiskStatus() {
             $('#risk-status-panel').html('<span style="color:#f85149">Ошибка загрузки статуса защиты</span>');
         });
 
-    $.get('/api/bot/pending')
+    $.get('/api/bot/pending' + q)
         .done(function(items) {
             renderPendingTable(items);
         });
@@ -1425,7 +1458,7 @@ function resolvePending(id, confirm) {
 // ─────────────────────────────────────────────────────────────────
 
 function loadBotMetrics() {
-    $.get('/api/bot/metrics?days=30')
+    $.get('/api/bot/metrics?days=30' + getActiveProfileIdParam(true))
         .done(function(m) {
             renderBotMetrics(m);
         })
@@ -1507,7 +1540,7 @@ function renderBotMetrics(m) {
 // ─────────────────────────────────────────────────────────────────
 
 function loadBotDecisions() {
-    $.get('/api/bot/decisions?limit=50')
+    $.get('/api/bot/decisions?limit=50' + getActiveProfileIdParam(true))
         .done(function(resp) {
             const data = Array.isArray(resp) ? resp : (resp.decisions || []);
             const profile = resp && !Array.isArray(resp) ? resp.profile : null;
