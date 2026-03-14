@@ -89,8 +89,9 @@ class ImportFileSettingsCommand extends Command
         $ex->setExchangeName(ExchangeIntegration::EXCHANGE_BYBIT);
         $ex->setApiKey($bybit['api_key'] ?? '');
         $ex->setApiSecret($bybit['api_secret'] ?? '');
-        $ex->setTestnetMode($bybit['testnet'] ?? true);
-        $ex->setBaseUrl($bybit['base_url'] ?? null);
+        $baseUrl = $bybit['base_url'] ?? null;
+        $ex->setBaseUrl($baseUrl);
+        $ex->setTestnetMode($baseUrl !== null ? str_contains($baseUrl, 'testnet') : ($bybit['testnet'] ?? true));
         $this->em->persist($ex);
 
         $chatgpt = $data['chatgpt'] ?? [];

@@ -67,7 +67,7 @@ class DatabaseSettingsSource implements SettingsSourceInterface
             $bybit = [
                 'api_key'    => $ex->getApiKey(),
                 'api_secret' => $ex->getApiSecret(),
-                'testnet'    => $ex->isTestnetMode(),
+                'testnet'    => str_contains($baseUrl, 'testnet'),
                 'base_url'   => $baseUrl,
             ];
         }
@@ -337,11 +337,12 @@ class DatabaseSettingsSource implements SettingsSourceInterface
         if (isset($settings['api_secret'])) {
             $ex->setApiSecret((string) $settings['api_secret']);
         }
-        if (isset($settings['testnet'])) {
-            $ex->setTestnetMode((bool) $settings['testnet']);
-        }
         if (array_key_exists('base_url', $settings)) {
-            $ex->setBaseUrl($settings['base_url'] !== '' ? (string) $settings['base_url'] : null);
+            $baseUrl = $settings['base_url'] !== '' ? (string) $settings['base_url'] : null;
+            $ex->setBaseUrl($baseUrl);
+            if ($baseUrl !== null) {
+                $ex->setTestnetMode(str_contains($baseUrl, 'testnet'));
+            }
         }
         $ex->touch();
         $this->em->flush();

@@ -78,7 +78,6 @@ function loadSettings() {
             if (data.bybit) {
                 $('#bybit-api-key').val(data.bybit.api_key || '');
                 $('#bybit-api-secret').val(data.bybit.api_secret || '');
-                $('#bybit-testnet').prop('checked', data.bybit.testnet !== false);
                 $('#bybit-base-url').val(data.bybit.base_url || 'https://api-testnet.bybit.com');
             }
             
@@ -193,7 +192,6 @@ function saveBybitSettings() {
         bybit: {
             api_key: $('#bybit-api-key').val(),
             api_secret: $('#bybit-api-secret').val(),
-            testnet: $('#bybit-testnet').is(':checked'),
             base_url: $('#bybit-base-url').val() || 'https://api-testnet.bybit.com'
         }
     };
