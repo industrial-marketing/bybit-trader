@@ -1477,8 +1477,12 @@ class BybitService
             $retMsg  = $data['retMsg'] ?? '';
             $orderId = $data['result']['orderId'] ?? null;
 
-            if ($retCode === self::POSITION_IDX_MISMATCH) {
+            // Retry on position idx mismatch (retCode 10001 or message contains "position idx"/"position mode")
+            $isPositionIdxError = $retCode === self::POSITION_IDX_MISMATCH
+                || (stripos($retMsg, 'position idx') !== false || stripos($retMsg, 'position mode') !== false);
+            if ($isPositionIdxError && $retCode !== 0) {
                 $posIdx   = $this->getAlternatePositionIdx($posIdx, $side);
+                $this->log("placeOrder retry positionIdx (retCode={$retCode}) → alt idx={$posIdx}");
                 $bodyOrder = json_encode(['category' => 'linear', 'symbol' => $symbol, 'side' => $side, 'orderType' => 'Market', 'qty' => (string)$qty, 'positionIdx' => $posIdx]);
                 $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
                     'headers' => $this->getAuthHeaders('POST', '/v5/order/create', $emptyParams, $settings, $bodyOrder),
@@ -1600,9 +1604,12 @@ class BybitService
             $data    = $response->toArray(false);
             $retCode = $data['retCode'] ?? -1;
 
-            if ($retCode === self::POSITION_IDX_MISMATCH) {
+            $retMsgClose = $data['retMsg'] ?? '';
+            $isPositionIdxErr = $retCode === self::POSITION_IDX_MISMATCH
+                || stripos($retMsgClose, 'position idx') !== false || stripos($retMsgClose, 'position mode') !== false;
+            if ($isPositionIdxErr && $retCode !== 0) {
                 $posIdx = $this->getAlternatePositionIdx($posIdx, $currentSide);
-                $this->log("closePositionMarket retry positionIdx={$posIdx} (was mismatch)");
+                $this->log("closePositionMarket retry positionIdx={$posIdx} (retCode={$retCode})");
                 $bodyOrder = json_encode(['category' => 'linear', 'symbol' => $symbol, 'side' => $orderSide, 'orderType' => 'Market', 'qty' => (string)$qty, 'reduceOnly' => true, 'positionIdx' => $posIdx]);
                 $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
                     'headers' => $this->getAuthHeaders('POST', '/v5/order/create', $emptyParams, $settings, $bodyOrder),
@@ -1726,8 +1733,10 @@ class BybitService
             $retCode = $data['retCode'] ?? -1;
             $orderId = $data['result']['orderId'] ?? null;
             $retMsg = $data['retMsg'] ?? '';
-            if ($retCode === self::POSITION_IDX_MISMATCH) {
-                $this->log("placeLimitOrder position idx mismatch (retCode=10001), retrying with alternate positionIdx");
+            $isPosIdxErr = $retCode === self::POSITION_IDX_MISMATCH
+                || stripos($retMsg, 'position idx') !== false || stripos($retMsg, 'position mode') !== false;
+            if ($isPosIdxErr && $retCode !== 0) {
+                $this->log("placeLimitOrder position idx mismatch (retCode={$retCode}), retrying with alternate positionIdx");
                 $orderPayload['positionIdx'] = $this->getAlternatePositionIdx($posIdx, $side);
                 $bodyOrder = json_encode($orderPayload);
                 $response  = $this->requestWithRetry('POST', $baseUrl . '/v5/order/create', [
@@ -1815,7 +1824,9 @@ class BybitService
             $retCode = $data['retCode'] ?? -1;
             $retMsg  = $data['retMsg'] ?? '';
 
-            if ($retCode === self::POSITION_IDX_MISMATCH) {
+            $isPosIdxErr = $retCode === self::POSITION_IDX_MISMATCH
+                || stripos($retMsg, 'position idx') !== false || stripos($retMsg, 'position mode') !== false;
+            if ($isPosIdxErr && $retCode !== 0) {
                 $altIdx     = $this->getAlternatePositionIdx($posIdx, $currentSide);
                 $orderPayload['positionIdx'] = $altIdx;
                 $bodyOrder  = json_encode($orderPayload);
@@ -1906,8 +1917,11 @@ class BybitService
             ]);
             $data    = $response->toArray(false);
             $retCode = $data['retCode'] ?? -1;
+            $retMsg  = $data['retMsg'] ?? '';
+            $isPosIdxErr = $retCode === self::POSITION_IDX_MISMATCH
+                || stripos($retMsg, 'position idx') !== false || stripos($retMsg, 'position mode') !== false;
 
-            if ($retCode === self::POSITION_IDX_MISMATCH) {
+            if ($isPosIdxErr && $retCode !== 0) {
                 $altIdx  = $this->getAlternatePositionIdx($posIdx, $currentSide);
                 $body    = json_encode(['category' => 'linear', 'symbol' => $symbol, 'positionIdx' => $altIdx, 'tpslMode' => 'Full', 'stopLoss' => (string)$price, 'slTriggerBy' => 'MarkPrice', 'slOrderType' => 'Market']);
                 $this->log("setBreakevenStopLoss retry → positionIdx {$posIdx}→{$altIdx}");
