@@ -18,71 +18,71 @@ class SettingsService
 
     public function getSettings(): array
     {
-        return $this->getSource()->getSettings();
+        return $this->databaseSource->getSettings();
     }
 
     public function getBybitSettings(): array
     {
-        return $this->getSource()->getBybitSettings();
+        return $this->databaseSource->getBybitSettings();
     }
 
     public function getChatGPTSettings(): array
     {
-        return $this->getSource()->getChatGPTSettings();
+        return $this->databaseSource->getChatGPTSettings();
     }
 
     public function getDeepseekSettings(): array
     {
-        return $this->getSource()->getDeepseekSettings();
+        return $this->databaseSource->getDeepseekSettings();
     }
 
     public function getTradingSettings(): array
     {
-        return $this->getSource()->getTradingSettings();
+        return $this->databaseSource->getTradingSettings();
     }
 
     public function getAlertsSettings(): array
     {
-        return $this->getSource()->getAlertsSettings();
+        return $this->databaseSource->getAlertsSettings();
     }
 
     public function getStrategiesSettings(): array
     {
-        return $this->getSource()->getStrategiesSettings();
+        return $this->databaseSource->getStrategiesSettings();
     }
 
     public function updateSettings(array $settings): void
     {
-        $this->getSource()->updateSettings($settings);
+        $this->databaseSource->updateSettings($settings);
     }
 
     public function updateBybitSettings(array $settings): void
     {
-        $this->getSource()->updateBybitSettings($settings);
+        $this->databaseSource->updateBybitSettings($settings);
     }
 
     public function updateChatGPTSettings(array $settings): void
     {
-        $this->getSource()->updateChatGPTSettings($settings);
+        $this->databaseSource->updateChatGPTSettings($settings);
     }
 
     public function updateDeepseekSettings(array $settings): void
     {
-        $this->getSource()->updateDeepseekSettings($settings);
+        $this->databaseSource->updateDeepseekSettings($settings);
     }
 
     public function updateTradingSettings(array $settings): void
     {
-        $this->getSource()->updateTradingSettings($settings);
+        $this->databaseSource->updateTradingSettings($settings);
     }
 
     public function updateAlertsSettings(array $settings): void
     {
-        $this->getSource()->updateAlertsSettings($settings);
+        $this->databaseSource->updateAlertsSettings($settings);
     }
 
     public function updateStrategiesSettings(array $settings): void
     {
-        $this->getSource()->updateStrategiesSettings($settings);
+        $this->databaseSource->updateStrategiesSettings($settings);
     }
 }
